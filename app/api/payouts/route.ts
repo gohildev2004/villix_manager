@@ -51,12 +51,16 @@ export async function POST(request: Request) {
 
     const { data: entries, error: entriesError } = await supabase
       .from("contribution_entries")
-      .select("id,contributor_id,source_name,source_handle,type,gross_cents,payout_cents,receipts!inner(receipt_date)")
+      .select("id,contributor_id,source_name,source_handle,type,gross_cents,payout_cents,rule_version,receipts!inner(receipt_date)")
       .in("receipt_id", approvedReceiptIds)
       .order("id");
     if (entriesError) throw entriesError;
     if (!(entries ?? []).length) throw new Error("No approved contribution entries exist for this week.");
     if ((entries ?? []).some((entry) => !entry.contributor_id)) throw new Error("Every contribution handle must be matched before payout approval.");
+    if ((entries ?? []).some((entry) => entry.payout_cents === null)) throw new Error("Every contribution type must have a published payout rule before approval.");
+    const ruleVersions = [...new Set((entries ?? []).map((entry) => entry.rule_version))];
+    if (ruleVersions.length !== 1) throw new Error("This week contains receipts from multiple rule versions. Split the payout period before approval.");
+    const ruleVersion = ruleVersions[0];
 
     const contributorIds = [...new Set((entries ?? []).map((entry) => entry.contributor_id!))];
     const [{ data: people, error: peopleError }, { data: assignments, error: assignmentsError }] = await Promise.all([
@@ -79,7 +83,7 @@ export async function POST(request: Request) {
       const historical = (assignments ?? []).find((assignment) => assignment.contributor_id === contributorId && assignment.effective_from <= receiptDate && (!assignment.effective_to || assignment.effective_to >= receiptDate));
       const teamLeadId = historical ? historical.team_lead_id : person.team_lead_id;
       const recipientId = teamLeadId ?? contributorId;
-      const payoutCents = entry.type === "problem" ? Math.round(entry.gross_cents / 2) : 0;
+      const payoutCents = entry.payout_cents!;
       totalGrossCents += entry.gross_cents;
       totalPayableCents += payoutCents;
       calculationEntries.push({ id: entry.id, grossCents: entry.gross_cents, type: entry.type, recipient: recipientId });
@@ -106,7 +110,7 @@ export async function POST(request: Request) {
     }
 
     const batchId = existing?.id ?? crypto.randomUUID();
-    const calculationHash = await digest(JSON.stringify({ periodStart, periodEnd, ruleVersion: 1, entries: calculationEntries }));
+    const calculationHash = await digest(JSON.stringify({ periodStart, periodEnd, ruleVersion, entries: calculationEntries }));
     const batch = {
       payout_date: payoutDate,
       source_currency: "USD",
@@ -115,7 +119,7 @@ export async function POST(request: Request) {
       total_gross_cents: totalGrossCents,
       total_retained_cents: totalGrossCents - totalPayableCents,
       total_payable_cents: totalPayableCents,
-      rule_version: 1,
+      rule_version: ruleVersion,
       calculation_hash: calculationHash,
       approved_by: actor.userId,
       approved_at: new Date().toISOString(),

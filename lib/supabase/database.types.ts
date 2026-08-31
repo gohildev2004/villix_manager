@@ -83,6 +83,7 @@ export type Database = {
           payout_bps: number | null
           payout_cents: number | null
           receipt_id: string
+          rule_version: number
           routing_snapshot: Json | null
           source_handle: string
           source_name: string
@@ -96,6 +97,7 @@ export type Database = {
           payout_bps?: number | null
           payout_cents?: number | null
           receipt_id: string
+          rule_version: number
           routing_snapshot?: Json | null
           source_handle: string
           source_name: string
@@ -109,6 +111,7 @@ export type Database = {
           payout_bps?: number | null
           payout_cents?: number | null
           receipt_id?: string
+          rule_version?: number
           routing_snapshot?: Json | null
           source_handle?: string
           source_name?: string
@@ -130,11 +133,52 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "contribution_entries_type_fkey"
-            columns: ["type"]
+            foreignKeyName: "contribution_entries_rule_version_fkey"
+            columns: ["rule_version"]
             isOneToOne: false
-            referencedRelation: "contribution_types"
-            referencedColumns: ["type"]
+            referencedRelation: "rule_versions"
+            referencedColumns: ["version"]
+          },
+        ]
+      }
+      contribution_rules: {
+        Row: {
+          active: boolean
+          created_at: string
+          description: string
+          label: string
+          payout_bps: number
+          type: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          description?: string
+          label: string
+          payout_bps: number
+          type: string
+          updated_at?: string
+          version: number
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          description?: string
+          label?: string
+          payout_bps?: number
+          type?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contribution_rules_version_fkey"
+            columns: ["version"]
+            isOneToOne: false
+            referencedRelation: "rule_versions"
+            referencedColumns: ["version"]
           },
         ]
       }
@@ -519,6 +563,36 @@ export type Database = {
         }
         Relationships: []
       }
+      rule_versions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          effective_from: string | null
+          published_at: string | null
+          published_by: string | null
+          status: string
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string | null
+          published_at?: string | null
+          published_by?: string | null
+          status: string
+          version: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string | null
+          published_at?: string | null
+          published_by?: string | null
+          status?: string
+          version?: number
+        }
+        Relationships: []
+      }
       team_assignments: {
         Row: {
           changed_by: string | null
@@ -590,7 +664,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      create_rule_version: { Args: never; Returns: number }
+      publish_rule_version: {
+        Args: { effective_date?: string; target_version: number }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never
@@ -723,4 +801,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-

@@ -8,6 +8,11 @@ function isoDate(value: string) {
   return parsed.toISOString().slice(0, 10);
 }
 
+function normalizedType(value: unknown) {
+  const normalized = String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
+  return /^[a-z][a-z0-9_-]{1,39}$/.test(normalized) ? normalized : "unknown";
+}
+
 async function sha256(buffer: ArrayBuffer) {
   return [...new Uint8Array(await crypto.subtle.digest("SHA-256", buffer))]
     .map((byte) => byte.toString(16).padStart(2, "0"))
@@ -37,16 +42,23 @@ export async function POST(request: Request) {
     if (duplicateError) throw duplicateError;
     if (duplicate) return Response.json({ error: "This receipt has already been imported." }, { status: 409 });
 
-    const { data: peopleData, error: peopleError } = await supabase.from("people").select("id,handle").eq("status", "active");
+    const [{ data: peopleData, error: peopleError }, { data: typesData, error: typesError }, { data: publishedVersion, error: versionError }] = await Promise.all([
+      supabase.from("people").select("id,handle").eq("status", "active"),
+      supabase.from("contribution_types").select("type,payout_bps").eq("active", true),
+      supabase.from("rule_versions").select("version").eq("status", "published").single(),
+    ]);
     if (peopleError) throw peopleError;
+    if (typesError) throw typesError;
+    if (versionError) throw versionError;
     const people = new Map((peopleData ?? []).map((person) => [person.handle.toLowerCase(), person.id]));
+    const contributionTypes = new Map((typesData ?? []).map((type) => [type.type.toLowerCase(), type.payout_bps]));
     const issues = new Set<string>();
     const normalizedRows = rows.map((row) => {
       const handle = String(row.handle ?? "").trim().toLowerCase();
-      const type = String(row.type ?? "").trim().toLowerCase();
+      const type = normalizedType(row.type);
       const grossCents = Math.round(Number(row.gross) * 100);
       if (!people.has(handle)) issues.add(`Unmatched handle ${handle || "(missing)"}`);
-      if (!["problem", "bonus"].includes(type)) issues.add(`Unknown type ${type || "(missing)"}`);
+      if (!contributionTypes.has(type)) issues.add(`Unknown type ${type || "(missing)"}`);
       if (!Number.isSafeInteger(grossCents) || grossCents < 0) throw new Error("Every contribution amount must be a valid non-negative number.");
       return {
         id: row.id || crypto.randomUUID(),
@@ -96,8 +108,9 @@ export async function POST(request: Request) {
       source_handle: row.handle,
       type: row.type,
       gross_cents: row.grossCents,
-      payout_bps: row.type === "problem" ? 5000 : row.type === "bonus" ? 0 : null,
-      payout_cents: row.type === "problem" ? Math.round(row.grossCents / 2) : row.type === "bonus" ? 0 : null,
+      payout_bps: contributionTypes.get(row.type) ?? null,
+      payout_cents: contributionTypes.has(row.type) ? Math.round(row.grossCents * (contributionTypes.get(row.type)! / 10000)) : null,
+      rule_version: publishedVersion.version,
     })));
     if (entriesError) throw entriesError;
 

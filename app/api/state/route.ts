@@ -11,14 +11,16 @@ function displayDate(value: string) {
 export async function GET() {
   try {
     const { actor, supabase } = await requireAdmin();
-    const [peopleQuery, entriesQuery, receiptsQuery, auditQuery, batchQuery] = await Promise.all([
+    const [peopleQuery, entriesQuery, receiptsQuery, auditQuery, batchQuery, ruleVersionsQuery, rulesQuery] = await Promise.all([
       supabase.from("people").select("*").order("display_name"),
       supabase.from("contribution_entries").select("*, receipts!inner(filename,receipt_date,status)").in("receipts.status", ["verified", "approved"]).order("created_at"),
       supabase.from("receipts").select("*, contribution_entries(count)").order("receipt_date", { ascending: false }).order("created_at", { ascending: false }),
       supabase.from("audit_events").select("*").order("created_at", { ascending: false }).limit(100),
       supabase.from("payout_batches").select("id,status,payout_date,payout_recipients(person_id,status)").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("rule_versions").select("version,status,effective_from,created_at,published_at").order("version", { ascending: false }),
+      supabase.from("contribution_rules").select("version,type,label,description,payout_bps,active").order("type"),
     ]);
-    for (const query of [peopleQuery, entriesQuery, receiptsQuery, auditQuery, batchQuery]) if (query.error) throw query.error;
+    for (const query of [peopleQuery, entriesQuery, receiptsQuery, auditQuery, batchQuery, ruleVersionsQuery, rulesQuery]) if (query.error) throw query.error;
 
     const people = (peopleQuery.data ?? []).map((person) => ({
       id: person.id,
@@ -38,6 +40,8 @@ export async function GET() {
       handle: entry.source_handle,
       type: entry.type,
       gross: entry.gross_cents / 100,
+      payoutBps: entry.payout_bps,
+      ruleVersion: entry.rule_version,
     }));
     const receipts = (receiptsQuery.data ?? []).map((receipt) => ({
       id: receipt.id,
@@ -70,6 +74,21 @@ export async function GET() {
       batchStatus: batch?.status === "approved" || batch?.status === "paid" ? "Approved" : "Draft",
       payoutDate: batch?.payout_date ?? "",
       paymentStatuses,
+      ruleVersions: (ruleVersionsQuery.data ?? []).map((version) => ({
+        version: version.version,
+        status: version.status,
+        effectiveFrom: version.effective_from,
+        createdAt: version.created_at,
+        publishedAt: version.published_at,
+      })),
+      rules: (rulesQuery.data ?? []).map((rule) => ({
+        version: rule.version,
+        type: rule.type,
+        label: rule.label,
+        description: rule.description,
+        recipientPercentage: rule.payout_bps / 100,
+        active: rule.active,
+      })),
       actor: { name: actor.displayName, email: actor.email, role: actor.role },
       persistence: "Supabase PostgreSQL + Storage",
     });
