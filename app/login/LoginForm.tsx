@@ -4,6 +4,8 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
+const OTP_LENGTH = 8;
+
 export default function LoginForm({ otpEnabled = false }: { otpEnabled?: boolean }) {
   const router = useRouter();
   const otpInput = useRef<HTMLInputElement>(null);
@@ -44,7 +46,7 @@ export default function LoginForm({ otpEnabled = false }: { otpEnabled?: boolean
       setStep("otp");
       setCode("");
       setResendIn(60);
-      setMessage("We sent a six-digit sign-in code to your email.");
+      setMessage("We sent an eight-digit sign-in code to your email.");
     } else {
       setMessage("Check your inbox for a secure sign-in link.");
     }
@@ -85,7 +87,7 @@ export default function LoginForm({ otpEnabled = false }: { otpEnabled?: boolean
       ) : (
         <>
           <div className="otp-heading">
-            <label htmlFor="otp">Six-digit code</label>
+            <label htmlFor="otp">Eight-digit code</label>
             <button type="button" className="login-text-button" onClick={() => { setStep("email"); setMessage(""); }}>Change email</button>
           </div>
           <p className="otp-destination">Sent to <strong>{email.trim().toLowerCase()}</strong></p>
@@ -95,17 +97,17 @@ export default function LoginForm({ otpEnabled = false }: { otpEnabled?: boolean
             className="otp-input"
             type="text"
             value={code}
-            onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+            onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, OTP_LENGTH))}
             inputMode="numeric"
             autoComplete="one-time-code"
-            pattern="[0-9]{6}"
-            maxLength={6}
-            placeholder="000000"
+            pattern="[0-9]{8}"
+            maxLength={OTP_LENGTH}
+            placeholder="00000000"
             aria-describedby="otp-help"
             required
           />
           <p id="otp-help" className="otp-help">The code expires shortly and can only be used once.</p>
-          <button type="submit" disabled={busy || code.length !== 6}>{busy ? "Verifying…" : "Verify and continue"}</button>
+          <button type="submit" disabled={busy || code.length !== OTP_LENGTH}>{busy ? "Verifying…" : "Verify and continue"}</button>
           <button type="button" className="login-secondary-button" disabled={busy || resendIn > 0} onClick={sendCode}>
             {resendIn > 0 ? `Resend code in ${resendIn}s` : "Resend code"}
           </button>

@@ -22,7 +22,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         <div className="login-copy">
           <span>Private workspace</span>
           <h1>Welcome back.</h1>
-          <p>Sign in with an authorized administrator email. {otpEnabled ? "We’ll send you a six-digit verification code." : "We’ll send you a one-time secure link."}</p>
+          <p>Sign in with an authorized administrator email. {otpEnabled ? "We’ll send you an eight-digit verification code." : "We’ll send you a one-time secure link."}</p>
         </div>
         {error === "not_authorized" && <p className="login-error">This account is not authorized for Villix Manager.</p>}
         {error === "invalid_link" && <p className="login-error">That sign-in request is invalid or expired. Request a new {otpEnabled ? "code" : "link"} below.</p>}
