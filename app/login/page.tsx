@@ -17,7 +17,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   return (
     <main className="login-page">
       <section className="login-card">
-        <div className="login-brand"><Image src="/villix-logo.svg" alt="Villix" width={42} height={42} priority /><span>Villix Manager</span></div>
+        <div className="login-brand"><Image src="/villix-logo.svg" alt="Villix" width={42} height={42} priority unoptimized /><span>Villix Manager</span></div>
         <div className="login-copy">
           <span>Private workspace</span>
           <h1>Welcome back.</h1>
