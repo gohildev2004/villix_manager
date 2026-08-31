@@ -4,24 +4,6 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
-const pdfWorkerUrl = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
-
-function ensurePromiseWithResolvers() {
-  if (typeof Promise.withResolvers === "function") return;
-  Object.defineProperty(Promise, "withResolvers", {
-    configurable: true,
-    value: function withResolvers<T>() {
-      let resolve!: (value: T | PromiseLike<T>) => void;
-      let reject!: (reason?: unknown) => void;
-      const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-        resolve = resolvePromise;
-        reject = rejectPromise;
-      });
-      return { promise, resolve, reject };
-    },
-  });
-}
-
 type View = "overview" | "inbox" | "people" | "teams" | "payouts" | "reconciliation" | "audit" | "rules" | "settings";
 type Role = "Contributor" | "Team lead" | "Admin";
 type PersonStatus = "Active" | "Paused";
@@ -159,39 +141,11 @@ export default function ManagerApp() {
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) { setParseError("Choose a PDF receipt to continue."); return; }
     setParsing(true); setParseError("");
     try {
-      ensurePromiseWithResolvers();
-      const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-      const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
-      let text = "";
-      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-        const content = await (await pdf.getPage(pageNumber)).getTextContent();
-        text += content.items.map((item) => "str" in item ? item.str : "").join(" ") + "\n";
-      }
-      const date = text.match(/Date:\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})/i)?.[1] || "Date unavailable";
-      const pattern = /([A-Za-z0-9][A-Za-z0-9 ._-]*?)\s*\(@([A-Za-z0-9_.-]+)\)\s+(problem|bonus|[A-Za-z][A-Za-z -]*)\s+\$([\d,]+\.\d{2})/gi;
-      const publishedVersion = ruleVersions.find((version) => version.status === "published");
-      const publishedRules = rules.filter((rule) => rule.version === publishedVersion?.version && rule.active);
-      const parsed: Entry[] = [];
-      let match: RegExpExecArray | null;
-      while ((match = pattern.exec(text)) !== null) {
-        const type = match[3].trim().toLowerCase();
-        const rule = publishedRules.find((candidate) => candidate.type === type);
-        parsed.push({ id: crypto.randomUUID(), receipt: file.name.replace(/\.pdf$/i, ""), date, name: match[1].trim(), handle: `@${match[2]}`, type, gross: Number(match[4].replace(/,/g, "")), payoutBps: rule ? Math.round(rule.recipientPercentage * 100) : null, ruleVersion: publishedVersion?.version ?? 1 });
-      }
-      if (!parsed.length) throw new Error("No contribution rows were detected. The receipt was not added.");
-      const sourceTotal = Number((text.match(/TOTAL\s+\$([\d,]+\.\d{2})/i)?.[1] || "0").replace(/,/g, ""));
-      const extractedTotal = parsed.reduce((sum, entry) => sum + entry.gross, 0);
-      if (sourceTotal && Math.abs(sourceTotal - extractedTotal) > .001) throw new Error(`Source total ${money.format(sourceTotal)} does not match extracted rows ${money.format(extractedTotal)}.`);
-      const unknownHandles = [...new Set(parsed.filter((entry) => !people.some((person) => person.handle.toLowerCase() === entry.handle.toLowerCase())).map((entry) => entry.handle))];
-      const activeTypes = new Set(publishedRules.map((rule) => rule.type));
-      const unknownTypes = [...new Set(parsed.filter((entry) => !activeTypes.has(entry.type)).map((entry) => entry.type))];
-      const issues = [...unknownHandles.map((handle) => `Unmatched handle ${handle}`), ...unknownTypes.map((type) => `Unknown type ${type}`)];
       const form = new FormData();
-      form.set("file", file); form.set("receiptDate", date); form.set("sourceTotal", String(sourceTotal || extractedTotal)); form.set("rows", JSON.stringify(parsed));
-      await api("/api/receipts", { method: "POST", body: form });
+      form.set("file", file);
+      const imported = await api<{ issues: string[] }>("/api/receipts", { method: "POST", body: form });
       await refreshState();
-      notify(issues.length ? "Receipt imported with items to review" : "Receipt verified and added to the inbox");
+      notify(imported.issues.length ? "Receipt imported with items to review" : "Receipt verified and added to the inbox");
       setView("inbox");
     } catch (error) { setParseError(error instanceof Error ? error.message : "The receipt could not be read."); }
     finally { setParsing(false); if (fileRef.current) fileRef.current.value = ""; }

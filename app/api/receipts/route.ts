@@ -1,12 +1,5 @@
 import { addAudit, errorResponse, requireAdmin, safeJson } from "@/lib/villix-server";
-
-type UploadedRow = { id?: string; name?: string; handle?: string; type?: string; gross?: number };
-
-function isoDate(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.valueOf())) throw new Error("The receipt date could not be read.");
-  return parsed.toISOString().slice(0, 10);
-}
+import { parseReceiptPdf } from "@/lib/receipt-parser";
 
 function normalizedType(value: unknown) {
   const normalized = String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
@@ -31,12 +24,8 @@ export async function POST(request: Request) {
     }
     if (file.size > 15 * 1024 * 1024) throw new Error("Receipt PDFs must be smaller than 15 MB.");
 
-    const rows = JSON.parse(String(form.get("rows") ?? "[]")) as UploadedRow[];
-    if (!Array.isArray(rows) || !rows.length || rows.length > 500) {
-      throw new Error("The receipt must contain between 1 and 500 contribution rows.");
-    }
-
     const buffer = await file.arrayBuffer();
+    const parsedReceipt = await parseReceiptPdf(buffer);
     const digest = await sha256(buffer);
     const { data: duplicate, error: duplicateError } = await supabase.from("receipts").select("id").eq("sha256", digest).maybeSingle();
     if (duplicateError) throw duplicateError;
@@ -53,7 +42,7 @@ export async function POST(request: Request) {
     const people = new Map((peopleData ?? []).map((person) => [person.handle.toLowerCase(), person.id]));
     const contributionTypes = new Map((typesData ?? []).map((type) => [type.type.toLowerCase(), type.payout_bps]));
     const issues = new Set<string>();
-    const normalizedRows = rows.map((row) => {
+    const normalizedRows = parsedReceipt.rows.map((row) => {
       const handle = String(row.handle ?? "").trim().toLowerCase();
       const type = normalizedType(row.type);
       const grossCents = Math.round(Number(row.gross) * 100);
@@ -71,12 +60,11 @@ export async function POST(request: Request) {
     });
 
     const extractedTotalCents = normalizedRows.reduce((total, row) => total + row.grossCents, 0);
-    const sourceTotalCents = Math.round(Number(form.get("sourceTotal")) * 100);
-    if (!Number.isSafeInteger(sourceTotalCents) || sourceTotalCents < 0) throw new Error("The receipt total is invalid.");
+    const sourceTotalCents = parsedReceipt.sourceTotalCents;
     if (sourceTotalCents !== extractedTotalCents) throw new Error("The receipt total does not match the extracted contribution rows.");
 
     receiptId = crypto.randomUUID();
-    const receiptDate = isoDate(String(form.get("receiptDate") ?? ""));
+    const receiptDate = parsedReceipt.receiptDate;
     storagePath = `${receiptDate}/${receiptId}.pdf`;
     const { error: uploadError } = await supabase.storage.from("receipt-files").upload(storagePath, buffer, {
       contentType: "application/pdf",
