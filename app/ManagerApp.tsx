@@ -6,6 +6,22 @@ import { useRouter } from "next/navigation";
 
 const pdfWorkerUrl = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
 
+function ensurePromiseWithResolvers() {
+  if (typeof Promise.withResolvers === "function") return;
+  Object.defineProperty(Promise, "withResolvers", {
+    configurable: true,
+    value: function withResolvers<T>() {
+      let resolve!: (value: T | PromiseLike<T>) => void;
+      let reject!: (reason?: unknown) => void;
+      const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+      });
+      return { promise, resolve, reject };
+    },
+  });
+}
+
 type View = "overview" | "inbox" | "people" | "teams" | "payouts" | "reconciliation" | "audit" | "rules" | "settings";
 type Role = "Contributor" | "Team lead" | "Admin";
 type PersonStatus = "Active" | "Paused";
@@ -143,6 +159,7 @@ export default function ManagerApp() {
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) { setParseError("Choose a PDF receipt to continue."); return; }
     setParsing(true); setParseError("");
     try {
+      ensurePromiseWithResolvers();
       const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
       pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
       const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;

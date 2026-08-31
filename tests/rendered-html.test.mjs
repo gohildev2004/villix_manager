@@ -34,6 +34,7 @@ test("contains no deployment dependency on the previous platform", async () => {
 
 test("configures the bundled PDF.js worker before parsing receipts", async () => {
   const managerApp = await readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8");
+  assert.match(managerApp, /ensurePromiseWithResolvers\(\);\s*\n\s*const pdfjs = await import/);
   assert.match(managerApp, /new URL\("pdfjs-dist\/legacy\/build\/pdf\.worker\.min\.mjs", import\.meta\.url\)/);
   assert.match(managerApp, /GlobalWorkerOptions\.workerSrc = pdfWorkerUrl/);
 });
