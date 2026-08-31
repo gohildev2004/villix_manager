@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: villix-manager
+    runtime: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.1
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        value: https://mohhdiirylnaccilrydn.supabase.co
+      - key: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+        sync: false
