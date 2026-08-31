@@ -359,6 +359,11 @@ h1 { margin: 0; font-size: clamp(29px, 3.1vw, 43px); line-height: 1.03; letter-s
 .login-message, .login-error { margin: 4px 0 0; padding: 11px 13px; border-radius: 11px; background: #edf6e9; color: #346027; font-size: 12px; line-height: 1.4; }
 .login-error { margin-bottom: 14px; background: #fff0ee; color: #9e382d; }
 .login-card footer { margin-top: 34px; color: #9a9e9a; font-size: 10px; text-align: center; }
+.login-confirm-card { text-align: center; }
+.login-confirm-card .login-brand { justify-content: center; }
+.login-confirm-card h1 { margin: 22px 0 8px; font-size: 31px; letter-spacing: -.04em; }
+.login-confirm-card > p { margin: 0; color: #737773; font-size: 13px; }
+.login-confirm-spinner { width: 38px; height: 38px; margin: 54px auto 0; border: 3px solid #e2e7e0; border-top-color: #66c52e; border-radius: 50%; animation: spin .8s linear infinite; }
 
 .server-state { display: inline-flex; align-items: center; gap: 7px; color: #6e6e73; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .server-state i { width: 7px; height: 7px; border-radius: 50%; background: #ff9f0a; box-shadow: 0 0 0 3px rgba(255,159,10,.12); }
