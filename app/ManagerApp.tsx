@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 
 type View = "overview" | "inbox" | "people" | "teams" | "payouts" | "reconciliation" | "audit" | "rules" | "settings";
 type Role = "Contributor" | "Team lead" | "Admin";
@@ -39,6 +40,7 @@ function initials(name: string) { return name.split(/\s+/).map((part) => part[0]
 function payable(entry: Entry) { return entry.type.toLowerCase() === "problem" ? entry.gross * 0.5 : 0; }
 
 export default function ManagerApp() {
+  const router = useRouter();
   const [view, setView] = useState<View>("overview");
   const [people, setPeople] = useState<Person[]>(initialPeople);
   const [entries, setEntries] = useState<Entry[]>(initialEntries);
@@ -207,7 +209,7 @@ export default function ManagerApp() {
         <nav className="side-nav">
           {navigation.map((section) => <div className="nav-section" key={section.group}><div className="nav-heading">{section.group}</div>{section.items.map((item) => <button key={item.id} className={view === item.id ? "selected" : ""} onClick={() => setView(item.id)}><i>{item.symbol}</i><span>{item.label}</span>{item.count ? <em>{item.count}</em> : null}</button>)}</div>)}
         </nav>
-        <div className="side-profile"><div className="avatar">{initials(actorName)}</div><div><b>{actorName}</b><span>Administrator</span></div><button aria-label="Sign out" title="Sign out" onClick={() => { window.location.href = "/auth/signout"; }}>↗</button></div>
+        <div className="side-profile"><div className="avatar">{initials(actorName)}</div><div><b>{actorName}</b><span>Administrator</span></div><button aria-label="Sign out" title="Sign out" onClick={() => router.push("/auth/signout")}>↗</button></div>
       </aside>
 
       <main className="app-main">
