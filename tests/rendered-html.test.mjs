@@ -31,3 +31,9 @@ test("contains no deployment dependency on the previous platform", async () => {
   assert.equal(packageJson.dependencies.vinext, undefined);
   await assert.rejects(access(new URL("../.openai/hosting.json", import.meta.url)));
 });
+
+test("configures the bundled PDF.js worker before parsing receipts", async () => {
+  const managerApp = await readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8");
+  assert.match(managerApp, /new URL\("pdfjs-dist\/legacy\/build\/pdf\.worker\.min\.mjs", import\.meta\.url\)/);
+  assert.match(managerApp, /GlobalWorkerOptions\.workerSrc = pdfWorkerUrl/);
+});

@@ -4,6 +4,8 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
+const pdfWorkerUrl = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
+
 type View = "overview" | "inbox" | "people" | "teams" | "payouts" | "reconciliation" | "audit" | "rules" | "settings";
 type Role = "Contributor" | "Team lead" | "Admin";
 type PersonStatus = "Active" | "Paused";
@@ -142,6 +144,7 @@ export default function ManagerApp() {
     setParsing(true); setParseError("");
     try {
       const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
       const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
       let text = "";
       for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
