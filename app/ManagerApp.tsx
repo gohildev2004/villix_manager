@@ -204,7 +204,7 @@ export default function ManagerApp() {
   return (
     <div className="app-shell">
       <aside className="side-panel" aria-label="Primary navigation">
-        <button className="wordmark" onClick={() => setView("overview")}><Image className="brand-logo" src="/villix-logo-transparent.png" alt="" width={32} height={32} unoptimized/><b>Villix</b></button>
+        <button className="wordmark" onClick={() => setView("overview")}><Image className="brand-logo" src="/villix-logo.svg" alt="" width={32} height={32} unoptimized/><b>Villix</b></button>
         <div className="workspace-switch"><div><small>Workspace</small><strong>Administration</strong></div><span>⌄</span></div>
         <nav className="side-nav">
           {navigation.map((section) => <div className="nav-section" key={section.group}><div className="nav-heading">{section.group}</div>{section.items.map((item) => <button key={item.id} className={view === item.id ? "selected" : ""} onClick={() => setView(item.id)}><i>{item.symbol}</i><span>{item.label}</span>{item.count ? <em>{item.count}</em> : null}</button>)}</div>)}
@@ -214,7 +214,7 @@ export default function ManagerApp() {
 
       <main className="app-main">
         <header className="app-bar">
-          <div className="mobile-brand"><Image className="brand-logo" src="/villix-logo-transparent.png" alt="" width={32} height={32} unoptimized/> Villix</div>
+          <div className="mobile-brand"><Image className="brand-logo" src="/villix-logo.svg" alt="" width={32} height={32} unoptimized/> Villix</div>
           <div className="app-crumb">Villix Manager <span>/</span> {viewCopy[view].title}</div>
           <div className="app-actions">
             <span className={`server-state ${serverStatus}`}><i/>{serverStatus === "online" ? "Database live" : serverStatus === "connecting" ? "Connecting" : "Server offline"}</span>

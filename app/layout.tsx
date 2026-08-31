@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.RENDER_EXTERNAL_URL ?? "http://localhost:3000"),
   title: { default: "Villix Manager", template: "%s · Villix Manager" },
   description: "Auditable contribution, commission, and weekly payout operations for Villix administrators.",
-  icons: { icon: "/villix-logo-transparent.png", shortcut: "/villix-logo-transparent.png", apple: "/villix-logo-transparent.png" },
+  icons: { icon: "/favicon.svg", shortcut: "/favicon.svg", apple: "/villix-logo.svg" },
   openGraph: {
     title: "Villix Manager",
     description: "Contribution in. Payout clarity out.",

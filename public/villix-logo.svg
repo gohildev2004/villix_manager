@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <rect width="1024" height="1024" rx="96" fill="#66c52e"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Villix">
+  <rect width="1024" height="1024" rx="45" fill="#66c52e"/>
   <g fill="#fff" transform="translate(0 1024) scale(1 -1)">
     <path d="M223 706v80.796c0 16.568 13.431 30 30 30h85.613V706H223Z"/>
     <path d="M685.452 816.796h85.613c16.568 0 30-13.432 30-30V706H685.452v110.796Z"/>
