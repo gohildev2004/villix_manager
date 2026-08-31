@@ -62,7 +62,7 @@ export default function ConfirmPage() {
   return (
     <main className="login-page">
       <section className="login-card login-confirm-card">
-        <div className="login-brand"><Image src="/villix-logo.svg" alt="Villix" width={54} height={42} priority unoptimized /><span>Villix Manager</span></div>
+        <div className="login-brand"><Image src="/villix-logo.svg" alt="Villix" width={47} height={36} priority unoptimized /><span>Villix Manager</span></div>
         <div className="login-confirm-spinner" aria-hidden="true" />
         <h1>Signing you in.</h1>
         <p role="status">{message}</p>
