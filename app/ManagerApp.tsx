@@ -348,7 +348,47 @@ function Reconciliation({ rows, batchStatus, statuses, setStatuses, notify, addA
 
 function Audit({ events }: { events: AuditEvent[] }) { return <div className="audit-layout"><section className="surface audit-list"><div className="section-header"><div><h2>Activity</h2><p>Financial history cannot be edited or deleted.</p></div><button className="button secondary">Export log</button></div>{events.map((event) => <div className="audit-event" key={event.id}><span className={`event-dot ${event.tone}`}/><div><b>{event.title}</b><p>{event.detail}</p><small>{event.actor} · {event.time}</small></div></div>)}</section><aside className="surface audit-aside"><h3>Audit integrity</h3><div className="integrity-score">100<span>%</span></div><p>All financial and hierarchy changes are attributed and timestamped.</p><ul><li>Append-only events</li><li>Rule version snapshots</li><li>Recipient routing snapshots</li><li>Approval attribution</li></ul></aside></div>; }
 
-function Rules() { return <div className="rules-layout"><section className="surface"><div className="section-header"><div><h2>Contribution types</h2><p>Rule set v1 · Effective Aug 24, 2026</p></div><button className="button secondary">Create new version</button></div><div className="rule-row"><div className="rule-name"><span className="rule-icon problem">P</span><div><b>problem</b><small>Eligible for distribution</small></div></div><div><span>Villix</span><strong>50%</strong></div><div><span>Payable</span><strong>50%</strong></div><Status value="Active"/></div><div className="rule-row"><div className="rule-name"><span className="rule-icon">B</span><div><b>bonus</b><small>Retained in full</small></div></div><div><span>Villix</span><strong>100%</strong></div><div><span>Payable</span><strong>0%</strong></div><Status value="Active"/></div><div className="rule-row locked"><div className="rule-name"><span className="rule-icon">?</span><div><b>Unknown type</b><small>Never calculated automatically</small></div></div><div className="rule-behavior">Block receipt for review</div><Status value="Safety lock"/></div></section><aside className="surface rule-explainer"><span className="large-percent">50<span>%</span></span><h2>Problem contribution split</h2><p>Half remains with Villix. Half routes to the contributor or their assigned team leader.</p><div className="split-bar"><span/><i/></div><div className="split-key"><span>Villix</span><span>Recipient</span></div></aside></div>; }
+function Rules() {
+  return <div className="rules-layout">
+    <section className="surface rules-card">
+      <header className="rules-card-header">
+        <div>
+          <div className="rules-kicker"><span><i/>Active policy</span><b>Version 1</b></div>
+          <h2>Contribution policy</h2>
+          <p>Effective Aug 24, 2026 · Applied to every receipt in this period</p>
+        </div>
+        <button className="button secondary rule-version-button"><span>+</span> New version</button>
+      </header>
+      <div className="rule-columns" aria-hidden="true"><span>Contribution type</span><span>Villix keeps</span><span>Recipient gets</span><span>Status</span></div>
+      <div className="rule-row eligible">
+        <div className="rule-name"><span className="rule-icon problem">P</span><div><b>Problem</b><small>Eligible for weekly distribution</small></div></div>
+        <div className="rule-value"><span>Villix keeps</span><strong>50%</strong></div>
+        <div className="rule-value recipient"><span>Recipient gets</span><strong>50%</strong></div>
+        <Status value="Active"/>
+      </div>
+      <div className="rule-row">
+        <div className="rule-name"><span className="rule-icon bonus">B</span><div><b>Bonus</b><small>Retained by Villix in full</small></div></div>
+        <div className="rule-value"><span>Villix keeps</span><strong>100%</strong></div>
+        <div className="rule-value"><span>Recipient gets</span><strong>0%</strong></div>
+        <Status value="Active"/>
+      </div>
+      <div className="rule-row locked">
+        <div className="rule-name"><span className="rule-icon unknown">?</span><div><b>Unknown type</b><small>Never calculated automatically</small></div></div>
+        <div className="rule-review"><span className="rule-lock">!</span><div><strong>Manual review</strong><small>Receipt is blocked before payout</small></div></div>
+        <Status value="Safety lock"/>
+      </div>
+    </section>
+
+    <aside className="surface rule-explainer">
+      <div className="rule-aside-kicker"><span>Default split</span><b>Problem</b></div>
+      <div className="rule-split-visual"><div><strong>50/50</strong><span>Villix · Recipient</span></div></div>
+      <h2>Simple by design.</h2>
+      <p>Villix retains half of every problem contribution. The remaining half follows the contributor’s payout route.</p>
+      <div className="rule-route-note"><span>→</span><div><b>Team routing applies</b><small>If a contributor has a team lead, their entire payable share routes to that lead.</small></div></div>
+      <footer><span>Policy snapshot</span><b>VLX-RULE-V1</b></footer>
+    </aside>
+  </div>;
+}
 
 function Settings({ saved, save }: { saved: boolean; save: () => void }) {
   return <div className="settings-layout"><section className="surface settings-card">
