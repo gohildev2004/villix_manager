@@ -25,6 +25,7 @@ type ServerState = { people: Person[]; entries: Entry[]; receiptEntries: Entry[]
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
+const contributorPortalUrl = process.env.NEXT_PUBLIC_CONTRIBUTOR_PORTAL_URL || "https://contributor.villix.in";
 
 const initialPeople: Person[] = [];
 const initialEntries: Entry[] = [];
@@ -45,6 +46,15 @@ const viewCopy: Record<View, { eyebrow: string; title: string; subtitle: string 
 
 function initials(name: string) { return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
 function payable(entry: Entry) { return entry.payoutBps === null ? 0 : entry.gross * (entry.payoutBps / 10000); }
+function isFinalRecipient(person: Person) { return person.status === "Active" && person.role !== "Admin" && (person.role === "Team lead" || !person.teamLeadId); }
+function openInvitationEmail(recipients: Person[], portalUrl: string) {
+  const emails = [...new Set(recipients.map((person) => person.email.trim()).filter(Boolean))];
+  const subject = encodeURIComponent("Set up your Villix contributor profile");
+  const body = encodeURIComponent(`Villix has enabled your contributor profile.\n\nOpen ${portalUrl} and enter your invited email address. You will then receive a one-time sign-in code.\n\nPlease complete your payout profile when bank onboarding becomes available.`);
+  const address = recipients.length === 1 ? encodeURIComponent(emails[0] ?? "") : "";
+  const bcc = recipients.length > 1 ? `&bcc=${encodeURIComponent(emails.join(","))}` : "";
+  window.location.href = `mailto:${address}?subject=${subject}&body=${body}${bcc}`;
+}
 
 export default function ManagerApp() {
   const router = useRouter();
@@ -178,10 +188,11 @@ export default function ManagerApp() {
     notify("Person removed from Villix");
   }
 
-  async function invitePayeePortal(personId: string) {
-    await api("/api/payee-portal/access", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ personId }) });
+  async function invitePayeePortals(personIds: string[]) {
+    const result = await api<{ portalUrl: string; recipients: number; enabled: number }>("/api/payee-portal/access", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ personIds }) });
     await refreshState();
-    notify("Payee portal access enabled and sign-in code sent");
+    notify(`${result.recipients} invitation${result.recipients === 1 ? "" : "s"} ready${result.enabled ? ` · ${result.enabled} access profile${result.enabled === 1 ? "" : "s"} enabled` : ""}`);
+    return result.portalUrl || contributorPortalUrl;
   }
 
   async function suspendPayeePortal(personId: string) {
@@ -299,9 +310,9 @@ export default function ManagerApp() {
           {parsing && <div className="processing-banner"><span className="spinner"/>Reading and verifying your receipt…</div>}
           {parseError && <div className="alert error-alert"><span>!</span><div><b>Receipt not added</b><p>{parseError}</p></div><button onClick={() => setParseError("")}>Dismiss</button></div>}
 
-          {view === "overview" && <Overview totals={totals} openIssues={openIssues} receipts={receipts} payoutRows={payoutRows} setView={setView} />}
+          {view === "overview" && <Overview totals={totals} openIssues={openIssues} receipts={receipts} payoutRows={payoutRows} people={people} invitePortals={invitePayeePortals} setView={setView} />}
           {view === "inbox" && <Inbox receipts={receipts} entries={receiptEntries} people={people} approveReceipt={async (id) => { try { await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) }); await refreshState(); notify("Receipt approved"); } catch (error) { notify(error instanceof Error ? error.message : "Receipt could not be approved"); } }} deleteReceipt={deleteReceipt} reviewReceipt={setReviewReceipt} openImport={() => fileRef.current?.click()} />}
-          {view === "people" && <People people={people} entries={entries} query={query} setQuery={setQuery} updatePerson={updatePerson} editPerson={savePersonDetails} invitePortal={invitePayeePortal} suspendPortal={suspendPayeePortal} removePerson={removePerson} openAdd={() => setPersonModal(true)} />}
+          {view === "people" && <People people={people} entries={entries} query={query} setQuery={setQuery} updatePerson={updatePerson} editPerson={savePersonDetails} invitePortal={async (id) => invitePayeePortals([id])} suspendPortal={suspendPayeePortal} removePerson={removePerson} openAdd={() => setPersonModal(true)} />}
           {view === "teams" && <Teams people={people} entries={entries} updatePerson={updatePerson} />}
           {view === "payouts" && <Payouts totals={totals} rows={payoutRows} payoutDate={payoutDate} payoutDay={payoutDay} status={batchStatus} approve={approveBatch} openIssues={openIssues} snapshot={payoutSnapshot} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} adjustment={settlementAdjustment} setAdjustment={setSettlementAdjustment} />}
           {view === "reconciliation" && <Reconciliation rows={payoutRows} people={people} batchStatus={batchStatus} statuses={paymentStatuses} readyPayments={readyPayments} snapshot={payoutSnapshot} providerReadiness={providerReadiness} dispatch={dispatchBatch} sync={syncPayouts} />}
@@ -319,7 +330,7 @@ export default function ManagerApp() {
   );
 }
 
-function Overview({ totals, openIssues, receipts, payoutRows, setView }: { totals: Totals; openIssues: number; receipts: Receipt[]; payoutRows: PayoutRow[]; setView: (view: View) => void }) {
+function Overview({ totals, openIssues, receipts, payoutRows, people, invitePortals, setView }: { totals: Totals; openIssues: number; receipts: Receipt[]; payoutRows: PayoutRow[]; people: Person[]; invitePortals: (ids: string[]) => Promise<string>; setView: (view: View) => void }) {
   const attention = [
     { title: `${receipts.filter((receipt) => receipt.status === "Verified").length} receipts ready for approval`, detail: "Source totals and contribution rows have been verified.", action: "Review", view: "inbox" as View, visible: receipts.some((receipt) => receipt.status === "Verified") },
     { title: "All contributor handles are matched", detail: "Every imported handle resolves to one active directory record.", action: "View people", view: "people" as View, visible: true },
@@ -340,7 +351,48 @@ function Overview({ totals, openIssues, receipts, payoutRows, setView }: { total
       <section className="surface attention-card"><div className="section-header"><div><h2>Needs attention</h2><p>Finish these before approving the week.</p></div><span className="count-badge">{attention.length}</span></div><div className="attention-list">{attention.map((item, index) => <div className="attention-item" key={item.title}><span className="index">0{index + 1}</span><div><b>{item.title}</b><p>{item.detail}</p></div><button onClick={() => setView(item.view)}>{item.action}</button></div>)}</div></section>
       <section className="surface"><div className="section-header"><div><h2>Payout preview</h2><p>Grouped by final payment recipient.</p></div><button className="text-button" onClick={() => setView("payouts")}>View all</button></div><div className="compact-list">{payoutRows.slice(0, 4).map((row) => <div className="recipient-row" key={row.key}><Avatar name={row.name}/><div className="grow"><b>{row.name}</b><span>{row.route} · {row.contributors} contributor{row.contributors === 1 ? "" : "s"}</span></div><strong>{money.format(row.payout)}</strong></div>)}</div></section>
     </div>
+    <RecipientOnboarding people={people} invitePortals={invitePortals} openPeople={() => setView("people")} />
   </div>;
+}
+
+function RecipientOnboarding({ people, invitePortals, openPeople }: { people: Person[]; invitePortals: (ids: string[]) => Promise<string>; openPeople: () => void }) {
+  const recipients = people.filter(isFinalRecipient);
+  const incomplete = recipients.filter((person) => !person.portalLastSeenAt || !person.payoutReady);
+  const [filter, setFilter] = useState<"All" | "Not signed in" | "Bank incomplete">("Not signed in");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const visible = incomplete.filter((person) => filter === "All" || (filter === "Not signed in" ? !person.portalLastSeenAt : !person.payoutReady));
+  const selectedPeople = recipients.filter((person) => selected.includes(person.id));
+  const allVisibleSelected = Boolean(visible.length) && visible.every((person) => selected.includes(person.id));
+
+  function toggleAll() {
+    const visibleIds = new Set(visible.map((person) => person.id));
+    setSelected((current) => allVisibleSelected ? current.filter((id) => !visibleIds.has(id)) : [...new Set([...current, ...visibleIds])]);
+  }
+  function toggle(id: string) { setSelected((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]); }
+  async function emailSelected() {
+    if (!selectedPeople.length) return;
+    setSending(true); setError("");
+    try {
+      const portalUrl = await invitePortals(selectedPeople.map((person) => person.id));
+      openInvitationEmail(selectedPeople, portalUrl);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Invitations could not be prepared."); }
+    finally { setSending(false); }
+  }
+  async function copyLink() {
+    try { await navigator.clipboard.writeText(contributorPortalUrl); }
+    catch { setError(`Copy this link: ${contributorPortalUrl}`); }
+  }
+
+  return <section className="surface onboarding-card">
+    <div className="section-header onboarding-header"><div><h2>Contributor onboarding</h2><p>Direct contributors and team leads only. Team members are paid through their lead.</p></div><div className="onboarding-summary"><span><b>{recipients.filter((person) => !person.portalLastSeenAt).length}</b> not signed in</span><span><b>{recipients.filter((person) => !person.payoutReady).length}</b> bank incomplete</span><span className="ready"><b>{recipients.filter((person) => person.portalLastSeenAt && person.payoutReady).length}</b> ready</span></div></div>
+    <div className="onboarding-toolbar"><div className="segmented" aria-label="Onboarding filter">{(["All", "Not signed in", "Bank incomplete"] as const).map((value) => <button className={filter === value ? "active" : ""} key={value} onClick={() => setFilter(value)}>{value}</button>)}</div><div className="command-actions"><button className="button secondary" onClick={() => void copyLink()}>Copy portal link</button><button className="button secondary" onClick={openPeople}>Open People</button><button className="button primary" disabled={!selectedPeople.length || sending} onClick={() => void emailSelected()}>{sending ? "Preparing…" : `Email selected${selectedPeople.length ? ` (${selectedPeople.length})` : ""}`}</button></div></div>
+    {error && <div className="onboarding-error">{error}</div>}
+    <div className="onboarding-table"><div className="onboarding-row onboarding-labels"><label><input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} aria-label="Select visible recipients"/><span>Recipient</span></label><span>Portal access</span><span>Last sign-in</span><span>Bank setup</span></div>{visible.map((person) => <div className="onboarding-row" key={person.id}><label><input type="checkbox" checked={selected.includes(person.id)} onChange={() => toggle(person.id)} aria-label={`Select ${person.name}`}/><Avatar name={person.name}/><span><b>{person.name}</b><small>{person.role} · {person.email}</small></span></label><Status value={person.portalStatus}/><span>{person.portalLastSeenAt ?? "Never"}</span><Status value={person.payoutReady ? "Payout ready" : "Setup needed"}/></div>)}</div>
+    {!visible.length && <Empty title="No recipients in this view" detail="Everyone matching this filter has completed their setup." />}
+    <div className="onboarding-note">Email selected opens one BCC invitation in your mail app. Recipients visit <b>contributor.villix.in</b> and request their own OTP; enabling access never sends an OTP.</div>
+  </section>;
 }
 
 function Stat({ label, value, note }: { label: string; value: string; note: string }) { return <div className="stat"><span>{label}</span><strong>{value}</strong><small>{note}</small></div>; }
@@ -394,7 +446,7 @@ function ReceiptDetailModal({ receipt, entries, people, close }: { receipt: Rece
   </section></div>;
 }
 
-function People({ people, entries, query, setQuery, updatePerson, editPerson, invitePortal, suspendPortal, removePerson, openAdd }: { people: Person[]; entries: Entry[]; query: string; setQuery: (value: string) => void; updatePerson: (id: string, changes: Partial<Person>) => void; editPerson: (id: string, changes: Partial<Person>) => Promise<void>; invitePortal: (id: string) => Promise<void>; suspendPortal: (id: string) => Promise<void>; removePerson: (id: string) => Promise<void>; openAdd: () => void }) {
+function People({ people, entries, query, setQuery, updatePerson, editPerson, invitePortal, suspendPortal, removePerson, openAdd }: { people: Person[]; entries: Entry[]; query: string; setQuery: (value: string) => void; updatePerson: (id: string, changes: Partial<Person>) => void; editPerson: (id: string, changes: Partial<Person>) => Promise<void>; invitePortal: (id: string) => Promise<string>; suspendPortal: (id: string) => Promise<void>; removePerson: (id: string) => Promise<void>; openAdd: () => void }) {
   const [roleFilter, setRoleFilter] = useState<"All" | Role>("All");
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const leads = people.filter((person) => person.role === "Team lead");
@@ -407,7 +459,7 @@ function People({ people, entries, query, setQuery, updatePerson, editPerson, in
   </div>;
 }
 
-function PersonProfileModal({ person, people, entries, close, edit, invitePortal, suspendPortal, remove }: { person: Person; people: Person[]; entries: Entry[]; close: () => void; edit: (changes: Partial<Person>) => Promise<void>; invitePortal: () => Promise<void>; suspendPortal: () => Promise<void>; remove: () => Promise<void> }) {
+function PersonProfileModal({ person, people, entries, close, edit, invitePortal, suspendPortal, remove }: { person: Person; people: Person[]; entries: Entry[]; close: () => void; edit: (changes: Partial<Person>) => Promise<void>; invitePortal: () => Promise<string>; suspendPortal: () => Promise<void>; remove: () => Promise<void> }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState("");
@@ -466,7 +518,12 @@ function PersonProfileModal({ person, people, entries, close, edit, invitePortal
 
   async function changePortalAccess(action: "invite" | "suspend") {
     setPortalSaving(true); setPortalError("");
-    try { await (action === "invite" ? invitePortal() : suspendPortal()); }
+    try {
+      if (action === "invite") {
+        const portalUrl = await invitePortal();
+        openInvitationEmail([person], portalUrl);
+      } else await suspendPortal();
+    }
     catch (error) { setPortalError(error instanceof Error ? error.message : "Payee portal access could not be updated."); }
     finally { setPortalSaving(false); }
   }
@@ -485,7 +542,7 @@ function PersonProfileModal({ person, people, entries, close, edit, invitePortal
         {canReceiveDirectly && <section className="edit-person-form payout-account-card">
           <div className="edit-person-heading"><div><h3>Payee portal access</h3><p>{person.payoutReady ? `RazorpayX beneficiary connected${person.bankLast4 ? ` · account ending ${person.bankLast4}` : ""}.` : "The recipient signs in to a restricted Villix portal. When RazorpayX is activated, its hosted Vendor Portal will collect and verify bank details outside Villix."}</p></div><Status value={person.portalStatus}/></div>
           <div className="portal-access-summary"><div><span>Recipient login</span><b>{person.email}</b></div><div><span>Last activity</span><b>{person.portalLastSeenAt ?? "Not signed in yet"}</b></div><div><span>Bank collection</span><b>{person.payoutReady ? "Completed" : "Test mode · unavailable"}</b></div></div>
-          <div className="portal-access-actions"><a className="button secondary" href={process.env.NEXT_PUBLIC_CONTRIBUTOR_PORTAL_URL || "/payee"} target="_blank" rel="noreferrer">Preview contributor portal</a>{person.portalStatus !== "Not invited" && person.portalStatus !== "Suspended" && <button type="button" className="button secondary" disabled={portalSaving} onClick={() => void changePortalAccess("suspend")}>Suspend access</button>}<button type="button" className="button primary" disabled={portalSaving} onClick={() => void changePortalAccess("invite")}>{portalSaving ? "Updating…" : person.portalStatus === "Not invited" ? "Invite recipient" : person.portalStatus === "Suspended" ? "Re-enable & send code" : "Resend sign-in code"}</button></div>
+          <div className="portal-access-actions"><a className="button secondary" href={contributorPortalUrl} target="_blank" rel="noreferrer">Preview contributor portal</a>{person.portalStatus !== "Not invited" && person.portalStatus !== "Suspended" && <button type="button" className="button secondary" disabled={portalSaving} onClick={() => void changePortalAccess("suspend")}>Suspend access</button>}<button type="button" className="button primary" disabled={portalSaving} onClick={() => void changePortalAccess("invite")}>{portalSaving ? "Preparing…" : person.portalStatus === "Not invited" ? "Enable & email link" : person.portalStatus === "Suspended" ? "Re-enable & email link" : "Email portal link"}</button></div>
           {portalError && <div className="review-error">{portalError}</div>}
           <div className="profile-data-note">Villix never asks an administrator to type a recipient’s account number. Provider-hosted onboarding will be enabled only after the production RazorpayX account is approved.</div>
         </section>}

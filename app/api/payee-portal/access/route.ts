@@ -1,23 +1,23 @@
-import { createClient as createSupabaseClient, type User } from "@supabase/supabase-js";
+import type { User } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { publicOrigin } from "@/lib/public-origin";
-import { contributorPortalConfirmUrl } from "@/lib/contributor-portal";
 import { addAudit, errorResponse, requireAdmin } from "@/lib/villix-server";
 
-async function findUserByEmail(email: string) {
+async function listUsersByEmail() {
   const admin = createAdminClient();
+  const users = new Map<string, User>();
   for (let page = 1; page <= 10; page += 1) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
     if (error) throw error;
-    const match = data.users.find((user) => user.email?.toLowerCase() === email);
-    if (match) return match;
+    for (const user of data.users) {
+      if (user.email) users.set(user.email.toLowerCase(), user);
+    }
     if (data.users.length < 1000) break;
   }
-  return null;
+  return users;
 }
 
-async function createOrFindUser(email: string): Promise<User> {
-  const existing = await findUserByEmail(email);
+async function createOrFindUser(email: string, users: Map<string, User>): Promise<User> {
+  const existing = users.get(email);
   if (existing) return existing;
   const admin = createAdminClient();
   const { data, error } = await admin.auth.admin.createUser({
@@ -26,20 +26,8 @@ async function createOrFindUser(email: string): Promise<User> {
     app_metadata: { villix_portal: "payee" },
   });
   if (error || !data.user) throw error ?? new Error("Supabase did not create the payee account.");
+  users.set(email, data.user);
   return data.user;
-}
-
-async function sendPortalCode(email: string, request: Request) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  if (!url || !key) throw new Error("Supabase email authentication is not configured.");
-  const origin = process.env.PAYEE_PORTAL_ORIGIN?.replace(/\/$/, "") || publicOrigin(request);
-  const supabase = createSupabaseClient(url, key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: { shouldCreateUser: false, emailRedirectTo: contributorPortalConfirmUrl(origin) },
-  });
-  if (error) throw error;
 }
 
 export async function POST(request: Request) {
@@ -49,31 +37,47 @@ export async function POST(request: Request) {
     if (!process.env.SUPABASE_SECRET_KEY) return Response.json({ error: "Add the Supabase server secret before enabling the payee portal." }, { status: 409 });
 
     const body = await request.json() as Record<string, unknown>;
-    const personId = String(body.personId ?? "");
-    const { data: person, error: personError } = await supabase.from("people").select("id,display_name,email,role,team_lead_id,status").eq("id", personId).maybeSingle();
+    const requestedIds = Array.isArray(body.personIds) ? body.personIds : [body.personId];
+    const personIds = [...new Set(requestedIds.map((value) => String(value ?? "")).filter(Boolean))];
+    if (!personIds.length) return Response.json({ error: "Choose at least one payout recipient." }, { status: 400 });
+    if (personIds.length > 100) return Response.json({ error: "Invite no more than 100 recipients at once." }, { status: 400 });
+
+    const { data: people, error: personError } = await supabase.from("people").select("id,display_name,email,role,team_lead_id,status").in("id", personIds);
     if (personError) throw personError;
-    if (!person) return Response.json({ error: "Person not found." }, { status: 404 });
-    if (person.status !== "active") return Response.json({ error: "Activate this person before inviting them to the payee portal." }, { status: 409 });
-    if (person.role === "admin") return Response.json({ error: "Administrators are not payout recipients." }, { status: 409 });
-    if (person.role === "contributor" && person.team_lead_id) {
-      return Response.json({ error: "This contributor is paid through their team leader. Invite the team leader instead." }, { status: 409 });
+    if (!people || people.length !== personIds.length) return Response.json({ error: "One or more recipients could not be found." }, { status: 404 });
+    for (const person of people) {
+      if (person.status !== "active") return Response.json({ error: `Activate ${person.display_name} before enabling contributor access.` }, { status: 409 });
+      if (person.role === "admin") return Response.json({ error: "Administrators are not payout recipients." }, { status: 409 });
+      if (person.role === "contributor" && person.team_lead_id) {
+        return Response.json({ error: `${person.display_name} is paid through a team leader. Enable the team leader instead.` }, { status: 409 });
+      }
     }
 
-    const user = await createOrFindUser(String(person.email).toLowerCase());
-    const { error: accessError } = await supabase.from("payee_portal_accounts").upsert({
-      person_id: person.id,
-      user_id: user.id,
-      status: "invited",
-      invited_at: new Date().toISOString(),
-      created_by: actor.userId,
-    }, { onConflict: "person_id" });
+    const { data: existingAccounts, error: accountError } = await supabase.from("payee_portal_accounts").select("person_id,status").in("person_id", personIds);
+    if (accountError) throw accountError;
+    const accountStatus = new Map((existingAccounts ?? []).map((account) => [account.person_id, account.status]));
+    const users = await listUsersByEmail();
+    const invitedAt = new Date().toISOString();
+    const accessRows = [];
+    for (const person of people) {
+      if (accountStatus.get(person.id) === "active") continue;
+      const email = String(person.email).toLowerCase();
+      const user = await createOrFindUser(email, users);
+      accessRows.push({ person_id: person.id, user_id: user.id, status: "invited" as const, invited_at: invitedAt, created_by: actor.userId });
+    }
+    const { error: accessError } = accessRows.length
+      ? await supabase.from("payee_portal_accounts").upsert(accessRows, { onConflict: "person_id" })
+      : { error: null };
     if (accessError) throw accessError;
-    const { error: profileError } = await supabase.from("payee_profiles").update({ onboarding_status: "pending", payout_provider: "razorpayx" }).eq("person_id", person.id).neq("onboarding_status", "ready");
+    const { error: profileError } = await supabase.from("payee_profiles").update({ onboarding_status: "pending", payout_provider: "razorpayx" }).in("person_id", personIds).neq("onboarding_status", "ready");
     if (profileError) throw profileError;
 
-    await sendPortalCode(String(person.email).toLowerCase(), request);
-    await addAudit(supabase, actor, "payee.portal_invited", "person", person.id, `${person.display_name} invited`, "Payee portal access was enabled and a one-time sign-in code was sent. No bank details were collected by Villix.", "success");
-    return Response.json({ ok: true });
+    const changedIds = new Set(accessRows.map((row) => row.person_id));
+    for (const person of people.filter((candidate) => changedIds.has(candidate.id))) {
+      await addAudit(supabase, actor, "payee.portal_invited", "person", person.id, `${person.display_name} portal access enabled`, "Contributor portal access was provisioned. The recipient must open contributor.villix.in and request their own one-time sign-in code.", "success");
+    }
+    const portalUrl = process.env.PAYEE_PORTAL_ORIGIN?.replace(/\/$/, "") || "https://contributor.villix.in";
+    return Response.json({ ok: true, recipients: people.length, enabled: accessRows.length, portalUrl });
   } catch (error) {
     return errorResponse(error);
   }

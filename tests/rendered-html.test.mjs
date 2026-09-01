@@ -165,13 +165,16 @@ test("prepares a restricted payee portal, hosted onboarding handoff, and payout 
     readFile(new URL("../proxy.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/contributor-portal.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(managerApp, /Invite recipient/);
+  assert.match(managerApp, /Contributor onboarding/);
+  assert.match(managerApp, /Email selected/);
+  assert.match(managerApp, /request their own OTP/);
   assert.match(managerApp, /Villix never asks an administrator to type a recipient’s account number/);
   assert.doesNotMatch(managerApp, /name="accountNumber"/);
   assert.match(managerApp, /Sync statuses/);
-  assert.match(portalAccessRoute, /shouldCreateUser: false/);
+  assert.doesNotMatch(portalAccessRoute, /signInWithOtp/);
+  assert.match(portalAccessRoute, /personIds/);
+  assert.match(portalAccessRoute, /request their own one-time sign-in code/);
   assert.match(portalAccessRoute, /payee_portal_accounts/);
-  assert.match(portalAccessRoute, /contributorPortalConfirmUrl/);
   assert.match(renderConfig, /https:\/\/contributor\.villix\.in/);
   assert.match(proxy, /isContributorPortalHost/);
   assert.match(proxy, /\["\/", "\/payee"\]/);

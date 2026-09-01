@@ -303,7 +303,7 @@ Complete this section only after staging passes.
 5. Open the receipt breakdown and compare it to the source document.
 6. Verify the correct published rule version applies.
 7. Review People and Teams for changes effective during the period.
-8. Confirm every final recipient has active portal access and a ready payout route.
+8. In **Overview → Contributor onboarding**, select the direct contributors and team leads who have not signed in, enable their access, and send the generated BCC email containing `https://contributor.villix.in`. Enabling access does not send an OTP; each recipient requests their own code from the contributor portal. Confirm every final recipient then has active portal access and a ready payout route.
 9. Review the payout preview, Villix retained amount, and final recipient totals.
 10. Approve the weekly payout batch.
 11. Have a second administrator review the frozen payout snapshot.
@@ -351,4 +351,3 @@ All boxes below must be checked before normal live payouts begin.
 - [ ] A controlled low-value production payout has reconciled successfully.
 - [ ] Two trusted administrators have approved the production switch.
 - [ ] `PAYOUTS_LIVE_ENABLED=true` is enabled only after every preceding requirement is complete.
-
