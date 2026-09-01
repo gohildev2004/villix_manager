@@ -2,6 +2,8 @@
 
 Private operations software for Villix administrators. It manages contributors and team leads, imports contribution receipts, applies versioned commission rules, and produces auditable weekly payout batches.
 
+Owner account setup, security, provider onboarding, testing, weekly operations, and go-live requirements are tracked in [OWNER_SETUP_AND_LAUNCH.md](./OWNER_SETUP_AND_LAUNCH.md).
+
 ## Financial policy
 
 - `problem`: 50% retained by Villix, 50% payable
