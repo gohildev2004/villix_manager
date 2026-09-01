@@ -160,6 +160,12 @@ export default function ManagerApp() {
     } catch (error) { await refreshState(); notify(error instanceof Error ? error.message : "Person could not be updated"); }
   }
 
+  async function removePerson(id: string) {
+    await api("/api/people", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) });
+    await refreshState();
+    notify("Person removed from Villix");
+  }
+
   async function resolveReceiptHandle(receiptId: string, handle: string, personId: string) {
     await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: receiptId, action: "resolve_handle", handle, personId }) });
     setReviewReceipt(null); await refreshState(); notify(`${handle} matched and receipt verified`);
@@ -246,7 +252,7 @@ export default function ManagerApp() {
 
           {view === "overview" && <Overview totals={totals} openIssues={openIssues} receipts={receipts} payoutRows={payoutRows} payoutDate={payoutDate} setView={setView} />}
           {view === "inbox" && <Inbox receipts={receipts} approveReceipt={async (id) => { try { await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) }); await refreshState(); notify("Receipt approved"); } catch (error) { notify(error instanceof Error ? error.message : "Receipt could not be approved"); } }} deleteReceipt={deleteReceipt} reviewReceipt={setReviewReceipt} openImport={() => fileRef.current?.click()} />}
-          {view === "people" && <People people={people} query={query} setQuery={setQuery} updatePerson={updatePerson} openAdd={() => setPersonModal(true)} />}
+          {view === "people" && <People people={people} entries={entries} query={query} setQuery={setQuery} updatePerson={updatePerson} removePerson={removePerson} openAdd={() => setPersonModal(true)} />}
           {view === "teams" && <Teams people={people} entries={entries} updatePerson={updatePerson} />}
           {view === "payouts" && <Payouts totals={totals} rows={payoutRows} payoutDate={payoutDate} setPayoutDate={setPayoutDate} status={batchStatus} approve={approveBatch} openIssues={openIssues} />}
           {view === "reconciliation" && <Reconciliation rows={payoutRows} batchStatus={batchStatus} statuses={paymentStatuses} setStatuses={setPaymentStatuses} notify={notify} addAudit={addAudit} readyPayments={readyPayments} />}
@@ -310,13 +316,70 @@ function Inbox({ receipts, approveReceipt, deleteReceipt, reviewReceipt, openImp
   </div>;
 }
 
-function People({ people, query, setQuery, updatePerson, openAdd }: { people: Person[]; query: string; setQuery: (value: string) => void; updatePerson: (id: string, changes: Partial<Person>) => void; openAdd: () => void }) {
+function People({ people, entries, query, setQuery, updatePerson, removePerson, openAdd }: { people: Person[]; entries: Entry[]; query: string; setQuery: (value: string) => void; updatePerson: (id: string, changes: Partial<Person>) => void; removePerson: (id: string) => Promise<void>; openAdd: () => void }) {
   const [roleFilter, setRoleFilter] = useState<"All" | Role>("All");
+  const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const leads = people.filter((person) => person.role === "Team lead");
   const visible = people.filter((person) => (roleFilter === "All" || person.role === roleFilter) && `${person.name} ${person.handle} ${person.email}`.toLowerCase().includes(query.toLowerCase()));
+  const selectedPerson = people.find((person) => person.id === selectedPersonId) ?? null;
   return <div className="stack">
     <div className="command-row"><div className="search-field"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search people" aria-label="Search people" /></div><div className="command-actions"><select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as "All" | Role)}><option>All</option><option>Contributor</option><option>Team lead</option><option>Admin</option></select><button className="button primary" onClick={openAdd}>Add person</button></div></div>
-    <section className="surface table-surface"><div className="data-table people-table"><div className="data-head"><span>Person</span><span>Role</span><span>Reports to</span><span>Payment route</span><span>Status</span><span></span></div>{visible.map((person) => <div className="data-row" key={person.id}><div className="identity-cell"><Avatar name={person.name}/><div><b>{person.name}</b><small>{person.handle} · {person.email}</small></div></div><select className="inline-select" value={person.role} onChange={(event) => updatePerson(person.id, { role: event.target.value as Role, teamLeadId: event.target.value === "Contributor" ? person.teamLeadId : null })}><option>Contributor</option><option>Team lead</option><option>Admin</option></select><div>{person.role === "Contributor" ? <select className="inline-select" value={person.teamLeadId || "direct"} onChange={(event) => updatePerson(person.id, { teamLeadId: event.target.value === "direct" ? null : event.target.value })}><option value="direct">No team lead</option>{leads.map((lead) => <option value={lead.id} key={lead.id}>{lead.name}</option>)}</select> : <span className="muted">—</span>}</div><span>{person.role === "Contributor" && person.teamLeadId ? "Via team lead" : person.payoutMethod}</span><Status value={person.status}/><button className="more-button" onClick={() => updatePerson(person.id, { status: person.status === "Active" ? "Paused" : "Active" })}>{person.status === "Active" ? "Pause" : "Activate"}</button></div>)}</div>{!visible.length && <Empty title="No matching people" detail="Clear the search or add a new person." />}</section>
+    <section className="surface table-surface"><div className="data-table people-table"><div className="data-head"><span>Person</span><span>Role</span><span>Reports to</span><span>Payment route</span><span>Status</span><span></span></div>{visible.map((person) => <div className="data-row" key={person.id}><button className="identity-cell person-link" onClick={() => setSelectedPersonId(person.id)}><Avatar name={person.name}/><div><b>{person.name}</b><small>{person.handle} · {person.email}</small></div></button><select className="inline-select" value={person.role} onChange={(event) => updatePerson(person.id, { role: event.target.value as Role, teamLeadId: event.target.value === "Contributor" ? person.teamLeadId : null })}><option>Contributor</option><option>Team lead</option><option>Admin</option></select><div>{person.role === "Contributor" ? <select className="inline-select" value={person.teamLeadId || "direct"} onChange={(event) => updatePerson(person.id, { teamLeadId: event.target.value === "direct" ? null : event.target.value })}><option value="direct">No team lead</option>{leads.map((lead) => <option value={lead.id} key={lead.id}>{lead.name}</option>)}</select> : <span className="muted">—</span>}</div><span>{person.role === "Contributor" && person.teamLeadId ? "Via team lead" : person.payoutMethod}</span><Status value={person.status}/><div className="row-actions"><button className="profile-button" onClick={() => setSelectedPersonId(person.id)}>Profile</button><button onClick={() => updatePerson(person.id, { status: person.status === "Active" ? "Paused" : "Active" })}>{person.status === "Active" ? "Pause" : "Activate"}</button></div></div>)}</div>{!visible.length && <Empty title="No matching people" detail="Clear the search or add a new person." />}</section>
+    {selectedPerson && <PersonProfileModal person={selectedPerson} people={people} entries={entries} close={() => setSelectedPersonId(null)} remove={async () => { await removePerson(selectedPerson.id); setSelectedPersonId(null); }} />}
+  </div>;
+}
+
+function PersonProfileModal({ person, people, entries, close, remove }: { person: Person; people: Person[]; entries: Entry[]; close: () => void; remove: () => Promise<void> }) {
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState("");
+  const ownEntries = entries.filter((entry) => entry.handle.toLowerCase() === person.handle.toLowerCase());
+  const members = people.filter((candidate) => candidate.teamLeadId === person.id);
+  const memberHandles = new Set(members.map((member) => member.handle.toLowerCase()));
+  const teamEntries = entries.filter((entry) => memberHandles.has(entry.handle.toLowerCase()));
+  const ownGross = ownEntries.reduce((sum, entry) => sum + entry.gross, 0);
+  const ownPayable = ownEntries.reduce((sum, entry) => sum + payable(entry), 0);
+  const teamPayable = teamEntries.reduce((sum, entry) => sum + payable(entry), 0);
+  const totalRouted = ownPayable + teamPayable;
+  const lead = people.find((candidate) => candidate.id === person.teamLeadId);
+  const receiptCount = new Set(ownEntries.map((entry) => entry.receipt)).size;
+  const breakdown = Array.from(ownEntries.reduce((groups, entry) => {
+    const current = groups.get(entry.type) ?? { count: 0, gross: 0, payable: 0 };
+    current.count += 1; current.gross += entry.gross; current.payable += payable(entry);
+    groups.set(entry.type, current); return groups;
+  }, new Map<string, { count: number; gross: number; payable: number }>()).entries());
+  const recent = [...ownEntries].reverse().slice(0, 6);
+  const earnedLabel = person.role === "Team lead" ? "Total routed" : person.teamLeadId ? "Payable generated" : "Total earned";
+
+  async function confirmDeletion() {
+    if (!confirmRemove) { setConfirmRemove(true); setRemoveError(""); return; }
+    setRemoving(true); setRemoveError("");
+    try { await remove(); }
+    catch (error) { setRemoveError(error instanceof Error ? error.message : "This person could not be removed."); setConfirmRemove(false); }
+    finally { setRemoving(false); }
+  }
+
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
+    <section className="modal person-profile-modal" role="dialog" aria-modal="true" aria-label={`${person.name} profile`}>
+      <header className="person-profile-header"><div className="profile-identity"><Avatar name={person.name} large/><div><span>{person.role}</span><h2>{person.name}</h2><p>{person.handle} · {person.email}</p></div></div><button onClick={close} aria-label="Close">×</button></header>
+      <div className="person-profile-body">
+        <div className="profile-route"><Status value={person.status}/><span>{lead ? `Payouts route to ${lead.name}` : person.role === "Team lead" ? `${members.length} team member${members.length === 1 ? "" : "s"} route here` : person.payoutMethod === "direct" ? "Paid directly" : "No payout route"}</span></div>
+        <section className="profile-metrics">
+          <div><span>Submissions</span><strong>{ownEntries.length}</strong><small>Verified entries</small></div>
+          <div><span>Gross contributed</span><strong>{money.format(ownGross)}</strong><small>Across {receiptCount} receipt{receiptCount === 1 ? "" : "s"}</small></div>
+          <div><span>{earnedLabel}</span><strong>{money.format(person.role === "Team lead" ? totalRouted : ownPayable)}</strong><small>{person.role === "Team lead" ? `${money.format(teamPayable)} from team` : lead ? `Routed to ${lead.name}` : "Eligible payout"}</small></div>
+          <div><span>Eligible rate</span><strong>{ownGross ? `${Math.round((ownPayable / ownGross) * 100)}%` : "—"}</strong><small>Blended by rule type</small></div>
+        </section>
+        {person.role === "Team lead" && <section className="profile-team-summary"><div><span>Team performance</span><b>{members.length} member{members.length === 1 ? "" : "s"}</b></div><div><span>Team submissions</span><b>{teamEntries.length}</b></div><div><span>Team gross</span><b>{money.format(teamEntries.reduce((sum, entry) => sum + entry.gross, 0))}</b></div><div><span>Team payable routed</span><b>{money.format(teamPayable)}</b></div></section>}
+        <div className="profile-columns">
+          <section><div className="profile-section-title"><h3>Contribution breakdown</h3><span>All time</span></div>{breakdown.length ? <div className="profile-breakdown">{breakdown.map(([type, values]) => <div key={type}><span className="type-chip">{type}</span><span>{values.count} submission{values.count === 1 ? "" : "s"}</span><strong>{money.format(values.payable)}</strong></div>)}</div> : <Empty title="No submissions yet" detail="Verified receipt entries will appear here." />}</section>
+          <section><div className="profile-section-title"><h3>Recent submissions</h3><span>{recent.length ? `${recent.length} shown` : "No activity"}</span></div>{recent.length ? <div className="profile-activity">{recent.map((entry) => <div key={entry.id}><div><b>{entry.type}</b><span>{entry.receipt} · {entry.date}</span></div><div><strong>{money.format(entry.gross)}</strong><small>{money.format(payable(entry))} payable</small></div></div>)}</div> : <Empty title="No recent activity" detail="Import and verify a receipt to begin." />}</section>
+        </div>
+        <div className="profile-data-note">Statistics include verified and approved receipt entries. Review items are excluded until they are resolved.</div>
+        {removeError && <div className="review-error">{removeError}</div>}
+      </div>
+      <footer className="person-profile-footer"><div><b>Remove from People</b><span>Only people with no financial or team history can be permanently removed.</span></div><button className={`button danger-button ${confirmRemove ? "confirm" : ""}`} disabled={removing || person.role === "Admin"} onClick={() => void confirmDeletion()}>{removing ? "Removing…" : person.role === "Admin" ? "Protected admin" : confirmRemove ? "Confirm removal" : "Remove person"}</button></footer>
+    </section>
   </div>;
 }
 

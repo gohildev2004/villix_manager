@@ -78,3 +78,52 @@ export async function PATCH(request: Request) {
     return Response.json({ ok: true });
   } catch (error) { return errorResponse(error); }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const { actor, supabase } = await requireAdmin();
+    if (actor.role === "reviewer") return Response.json({ error: "Reviewers cannot remove people." }, { status: 403 });
+
+    const body = await request.json() as Record<string, unknown>;
+    const id = String(body.id ?? "");
+    if (!id) return Response.json({ error: "Choose a person to remove." }, { status: 400 });
+
+    const { data: person, error: personError } = await supabase
+      .from("people")
+      .select("id,display_name,role")
+      .eq("id", id)
+      .maybeSingle();
+    if (personError) throw personError;
+    if (!person) return Response.json({ error: "Person not found." }, { status: 404 });
+    if (person.role === "admin") return Response.json({ error: "Administrator records cannot be removed from the People directory." }, { status: 409 });
+
+    const [entries, recipients, members, ledAssignments] = await Promise.all([
+      supabase.from("contribution_entries").select("id", { count: "exact", head: true }).eq("contributor_id", id),
+      supabase.from("payout_recipients").select("id", { count: "exact", head: true }).eq("person_id", id),
+      supabase.from("people").select("id", { count: "exact", head: true }).eq("team_lead_id", id),
+      supabase.from("team_assignments").select("id", { count: "exact", head: true }).eq("team_lead_id", id),
+    ]);
+    for (const result of [entries, recipients, members, ledAssignments]) if (result.error) throw result.error;
+
+    const blockers: string[] = [];
+    if (entries.count) blockers.push(`${entries.count} contribution entr${entries.count === 1 ? "y" : "ies"}`);
+    if (recipients.count) blockers.push(`${recipients.count} payout record${recipients.count === 1 ? "" : "s"}`);
+    if (members.count) blockers.push(`${members.count} assigned team member${members.count === 1 ? "" : "s"}`);
+    if (ledAssignments.count && !members.count) blockers.push("historical team assignments");
+    if (blockers.length) {
+      return Response.json({
+        error: `${person.display_name} cannot be removed because they have ${blockers.join(", ")}. Pause the person instead, or remove/reassign the linked records first.`,
+      }, { status: 409 });
+    }
+
+    const { error: assignmentError } = await supabase.from("team_assignments").delete().eq("contributor_id", id);
+    if (assignmentError) throw assignmentError;
+    const { error: profileError } = await supabase.from("payee_profiles").delete().eq("person_id", id);
+    if (profileError) throw profileError;
+    const { error: deleteError } = await supabase.from("people").delete().eq("id", id);
+    if (deleteError) throw deleteError;
+
+    await addAudit(supabase, actor, "person.removed", "person", id, `${person.display_name} removed`, "The unreferenced directory record and payee profile were permanently removed.", "warning");
+    return Response.json({ ok: true });
+  } catch (error) { return errorResponse(error); }
+}

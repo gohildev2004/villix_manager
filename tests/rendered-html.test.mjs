@@ -60,3 +60,20 @@ test("parses, reviews, and validates receipt PDFs on the trusted server", async 
   assert.match(nextConfig, /pdfjs-dist\/legacy\/build\/pdf\.worker\.mjs/);
   await access(new URL("../.next/standalone/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs", import.meta.url));
 });
+
+test("provides person performance profiles and protects financial history on removal", async () => {
+  const [managerApp, peopleRoute] = await Promise.all([
+    readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/people/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(managerApp, /function PersonProfileModal/);
+  assert.match(managerApp, /Gross contributed/);
+  assert.match(managerApp, /Recent submissions/);
+  assert.match(managerApp, /Team payable routed/);
+  assert.match(managerApp, /Statistics include verified and approved receipt entries/);
+  assert.match(managerApp, /Confirm removal/);
+  assert.match(peopleRoute, /export async function DELETE/);
+  assert.match(peopleRoute, /contribution_entries/);
+  assert.match(peopleRoute, /payout_recipients/);
+  assert.match(peopleRoute, /cannot be removed because/);
+});
