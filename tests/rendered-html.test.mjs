@@ -33,12 +33,18 @@ test("contains no deployment dependency on the previous platform", async () => {
 });
 
 test("parses and validates receipt PDFs on the trusted server", async () => {
-  const [managerApp, receiptRoute, receiptParser] = await Promise.all([
+  const [managerApp, receiptRoute, receiptParser, nextConfig] = await Promise.all([
     readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/receipts/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/receipt-parser.ts", import.meta.url), "utf8"),
+    readFile(new URL("../next.config.ts", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(managerApp, /pdfjs-dist|GlobalWorkerOptions/);
   assert.match(receiptRoute, /parseReceiptPdf\(buffer\)/);
+  assert.match(receiptRoute, /runtime = "nodejs"/);
   assert.match(receiptParser, /sourceTotalCents !== extractedTotalCents/);
+  assert.match(nextConfig, /serverExternalPackages: \["pdfjs-dist"\]/);
+  assert.match(nextConfig, /outputFileTracingIncludes/);
+  assert.match(nextConfig, /pdfjs-dist\/legacy\/build\/pdf\.worker\.mjs/);
+  await access(new URL("../.next/standalone/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs", import.meta.url));
 });

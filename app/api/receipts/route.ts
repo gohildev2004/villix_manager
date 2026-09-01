@@ -1,6 +1,8 @@
 import { addAudit, errorResponse, requireAdmin, safeJson } from "@/lib/villix-server";
 import { parseReceiptPdf } from "@/lib/receipt-parser";
 
+export const runtime = "nodejs";
+
 function normalizedType(value: unknown) {
   const normalized = String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
   return /^[a-z][a-z0-9_-]{1,39}$/.test(normalized) ? normalized : "unknown";
