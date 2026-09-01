@@ -400,7 +400,9 @@ h1 { margin: 0; font-size: clamp(29px, 3.1vw, 43px); line-height: 1.03; letter-s
 .profile-section-title h3 { margin: 0; font-size: 12px; }
 .profile-section-title span { color: var(--tertiary); font-size: 9px; }
 .profile-breakdown > div { min-height: 52px; display: grid; grid-template-columns: 73px 1fr auto; align-items: center; gap: 9px; border-bottom: 1px solid var(--line); color: var(--secondary); font-size: 10px; }
-.profile-breakdown strong { color: var(--ink); font-size: 11px; }
+.profile-breakdown .breakdown-amount { text-align: right; }
+.profile-breakdown strong { display: block; color: var(--ink); font-size: 11px; }
+.profile-breakdown small { display: block; margin-top: 3px; color: var(--tertiary); font-size: 9px; }
 .type-chip { width: fit-content; padding: 4px 7px; border-radius: 8px; color: var(--blue); background: var(--soft-blue); font-weight: 620; text-transform: capitalize; }
 .profile-activity > div { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
 .profile-activity > div > div:last-child { text-align: right; }

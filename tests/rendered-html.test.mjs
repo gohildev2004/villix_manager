@@ -69,6 +69,8 @@ test("provides person performance profiles and protects financial history on rem
   assert.match(managerApp, /function PersonProfileModal/);
   assert.match(managerApp, /Gross contributed/);
   assert.match(managerApp, /Recent submissions/);
+  assert.match(managerApp, /money\.format\(values\.gross\)/);
+  assert.match(managerApp, /money\.format\(values\.payable\).*payable/);
   assert.match(managerApp, /Team payable routed/);
   assert.match(managerApp, /Statistics include verified and approved receipt entries/);
   assert.match(managerApp, /Confirm removal/);
