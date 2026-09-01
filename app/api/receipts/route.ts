@@ -1,5 +1,5 @@
-import { addAudit, errorResponse, requireAdmin, safeJson } from "@/lib/villix-server";
-import { parseReceiptPdf } from "@/lib/receipt-parser";
+import { addAudit, errorResponse, requireAdmin, safeJson, type VillixClient } from "@/lib/villix-server";
+import { parseReceiptPdf, ReceiptValidationError } from "@/lib/receipt-parser";
 
 export const runtime = "nodejs";
 
@@ -14,24 +14,30 @@ async function sha256(buffer: ArrayBuffer) {
     .join("");
 }
 
+function databaseErrorCode(error: unknown) {
+  return typeof error === "object" && error && "code" in error ? String(error.code) : "";
+}
+
 export async function POST(request: Request) {
   let storagePath = "";
   let receiptId = "";
+  let supabaseClient: VillixClient | null = null;
   try {
     const { actor, supabase } = await requireAdmin();
+    supabaseClient = supabase;
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File) || (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf")) {
-      throw new Error("A PDF receipt is required.");
+      throw new ReceiptValidationError("A PDF receipt is required.");
     }
-    if (file.size > 15 * 1024 * 1024) throw new Error("Receipt PDFs must be smaller than 15 MB.");
+    if (file.size > 15 * 1024 * 1024) throw new ReceiptValidationError("Receipt PDFs must be smaller than 15 MB.");
 
     const buffer = await file.arrayBuffer();
-    const parsedReceipt = await parseReceiptPdf(buffer);
     const digest = await sha256(buffer);
     const { data: duplicate, error: duplicateError } = await supabase.from("receipts").select("id").eq("sha256", digest).maybeSingle();
     if (duplicateError) throw duplicateError;
     if (duplicate) return Response.json({ error: "This receipt has already been imported." }, { status: 409 });
+    const parsedReceipt = await parseReceiptPdf(buffer);
 
     const [{ data: peopleData, error: peopleError }, { data: typesData, error: typesError }, { data: publishedVersion, error: versionError }] = await Promise.all([
       supabase.from("people").select("id,handle").eq("status", "active"),
@@ -50,7 +56,7 @@ export async function POST(request: Request) {
       const grossCents = Math.round(Number(row.gross) * 100);
       if (!people.has(handle)) issues.add(`Unmatched handle ${handle || "(missing)"}`);
       if (!contributionTypes.has(type)) issues.add(`Unknown type ${type || "(missing)"}`);
-      if (!Number.isSafeInteger(grossCents) || grossCents < 0) throw new Error("Every contribution amount must be a valid non-negative number.");
+      if (!Number.isSafeInteger(grossCents) || grossCents < 0) throw new ReceiptValidationError("Every contribution amount must be a valid non-negative number.");
       return {
         id: row.id || crypto.randomUUID(),
         name: String(row.name ?? "").trim(),
@@ -63,7 +69,7 @@ export async function POST(request: Request) {
 
     const extractedTotalCents = normalizedRows.reduce((total, row) => total + row.grossCents, 0);
     const sourceTotalCents = parsedReceipt.sourceTotalCents;
-    if (sourceTotalCents !== extractedTotalCents) throw new Error("The receipt total does not match the extracted contribution rows.");
+    if (sourceTotalCents !== extractedTotalCents) throw new ReceiptValidationError("The receipt total does not match the extracted contribution rows.");
 
     receiptId = crypto.randomUUID();
     const receiptDate = parsedReceipt.receiptDate;
@@ -107,13 +113,22 @@ export async function POST(request: Request) {
     await addAudit(supabase, actor, "receipt.imported", "receipt", receiptId, "Receipt imported", `${file.name}: ${normalizedRows.length} rows and $${(extractedTotalCents / 100).toFixed(2)} verified.`, issues.size ? "warning" : "success");
     return Response.json({ id: receiptId, status, issues: [...issues] }, { status: 201 });
   } catch (error) {
-    if (storagePath) {
+    if (storagePath && supabaseClient) {
       try {
-        const { supabase } = await requireAdmin();
-        if (receiptId) await supabase.from("receipts").delete().eq("id", receiptId);
-        await supabase.storage.from("receipt-files").remove([storagePath]);
-      } catch { /* best-effort rollback */ }
+        if (receiptId) {
+          const { error: entriesRollbackError } = await supabaseClient.from("contribution_entries").delete().eq("receipt_id", receiptId);
+          if (entriesRollbackError) console.error("Receipt entry rollback failed", entriesRollbackError);
+          const { error: receiptRollbackError } = await supabaseClient.from("receipts").delete().eq("id", receiptId);
+          if (receiptRollbackError) console.error("Receipt rollback failed", receiptRollbackError);
+        }
+        const { error: storageRollbackError } = await supabaseClient.storage.from("receipt-files").remove([storagePath]);
+        if (storageRollbackError) console.error("Receipt file rollback failed", storageRollbackError);
+      } catch (rollbackError) {
+        console.error("Receipt import rollback failed", rollbackError);
+      }
     }
+    if (error instanceof ReceiptValidationError) return Response.json({ error: error.message }, { status: 400 });
+    if (databaseErrorCode(error) === "23505") return Response.json({ error: "This receipt has already been imported." }, { status: 409 });
     return errorResponse(error);
   }
 }

@@ -43,6 +43,8 @@ test("parses and validates receipt PDFs on the trusted server", async () => {
   assert.match(receiptRoute, /parseReceiptPdf\(buffer\)/);
   assert.match(receiptRoute, /runtime = "nodejs"/);
   assert.match(receiptParser, /sourceTotalCents !== extractedTotalCents/);
+  assert.match(receiptParser, /new Uint8Array\(buffer\)\.slice\(\)/);
+  assert.match(receiptRoute, /contribution_entries"\)\.delete\(\)\.eq\("receipt_id", receiptId\)/);
   assert.match(nextConfig, /serverExternalPackages: \["pdfjs-dist"\]/);
   assert.match(nextConfig, /outputFileTracingIncludes/);
   assert.match(nextConfig, /pdfjs-dist\/legacy\/build\/pdf\.worker\.mjs/);
