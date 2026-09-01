@@ -34,6 +34,7 @@ export async function GET() {
     }));
     const entries = (entriesQuery.data ?? []).map((entry) => ({
       id: entry.id,
+      personId: entry.contributor_id,
       receipt: entry.receipts.filename.replace(/\.pdf$/i, ""),
       date: displayDate(entry.receipts.receipt_date),
       name: entry.source_name,

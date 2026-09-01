@@ -384,8 +384,16 @@ h1 { margin: 0; font-size: clamp(29px, 3.1vw, 43px); line-height: 1.03; letter-s
 .profile-identity h2 { margin: 2px 0 3px; }
 .profile-identity p { margin: 0; color: var(--secondary); font-size: 11px; }
 .profile-identity > div > span { color: var(--blue); font-size: 9px; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; }
+.profile-header-actions { display: flex; align-items: center; gap: 8px; }
+.modal header .profile-edit-trigger { width: auto; padding: 0 12px; border-radius: 9px; color: var(--blue); background: var(--soft-blue); font-size: 10px; font-weight: 610; }
 .person-profile-body { padding: 22px 26px 24px; }
 .profile-route { display: flex; align-items: center; gap: 9px; margin-bottom: 17px; color: var(--secondary); font-size: 11px; }
+.modal .edit-person-form { margin: 0 0 18px; padding: 18px; border: 1px solid #dce8f4; border-radius: 15px; background: linear-gradient(135deg,#fbfdff,#f4f9ff); }
+.edit-person-heading { margin-bottom: 15px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.edit-person-heading h3 { margin: 0; font-size: 14px; }
+.edit-person-heading p { margin: 4px 0 0; color: var(--secondary); font-size: 10px; }
+.edit-person-heading > span { padding: 4px 7px; border-radius: 8px; color: var(--blue); background: #fff; font-size: 9px; white-space: nowrap; }
+.edit-person-form footer { margin-top: 15px !important; }
 .profile-metrics { display: grid; grid-template-columns: repeat(4,1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--line); gap: 1px; }
 .profile-metrics > div { min-height: 112px; padding: 17px; background: #fff; display: flex; flex-direction: column; }
 .profile-metrics span, .profile-team-summary span { color: var(--secondary); font-size: 10px; }

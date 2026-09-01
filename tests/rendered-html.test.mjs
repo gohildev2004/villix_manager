@@ -62,9 +62,10 @@ test("parses, reviews, and validates receipt PDFs on the trusted server", async 
 });
 
 test("provides person performance profiles and protects financial history on removal", async () => {
-  const [managerApp, peopleRoute] = await Promise.all([
+  const [managerApp, peopleRoute, stateRoute] = await Promise.all([
     readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/people/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/state/route.ts", import.meta.url), "utf8"),
   ]);
   assert.match(managerApp, /function PersonProfileModal/);
   assert.match(managerApp, /Gross contributed/);
@@ -74,8 +75,15 @@ test("provides person performance profiles and protects financial history on rem
   assert.match(managerApp, /Team payable routed/);
   assert.match(managerApp, /Statistics include verified and approved receipt entries/);
   assert.match(managerApp, /Confirm removal/);
+  assert.match(managerApp, /Edit person details/);
+  assert.match(managerApp, /Save changes/);
+  assert.match(managerApp, /entry\.personId === person\.id/);
   assert.match(peopleRoute, /export async function DELETE/);
+  assert.match(peopleRoute, /Reviewers cannot update people/);
+  assert.match(peopleRoute, /display_name: name, email, handle/);
+  assert.match(peopleRoute, /receipt handle or email is already in use/);
   assert.match(peopleRoute, /contribution_entries/);
   assert.match(peopleRoute, /payout_recipients/);
   assert.match(peopleRoute, /cannot be removed because/);
+  assert.match(stateRoute, /personId: entry\.contributor_id/);
 });

@@ -48,12 +48,18 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const { actor, supabase } = await requireAdmin();
+    if (actor.role === "reviewer") return Response.json({ error: "Reviewers cannot update people." }, { status: 403 });
     const body = await request.json() as Record<string, unknown>;
     const id = String(body.id ?? "");
-    const { data: current, error: currentError } = await supabase.from("people").select("id,display_name,role,team_lead_id,status").eq("id", id).maybeSingle();
+    const { data: current, error: currentError } = await supabase.from("people").select("id,display_name,handle,email,role,team_lead_id,status").eq("id", id).maybeSingle();
     if (currentError) throw currentError;
     if (!current) return Response.json({ error: "Person not found." }, { status: 404 });
 
+    const name = body.name === undefined ? current.display_name : String(body.name).trim();
+    const email = body.email === undefined ? current.email : String(body.email).trim().toLowerCase();
+    const handle = body.handle === undefined ? current.handle : normalizedHandle(body.handle);
+    if (name.length < 2 || name.length > 120) throw new Error("Enter a name between 2 and 120 characters.");
+    if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error("Enter a valid email address.");
     const role = body.role === undefined ? current.role : roles.get(String(body.role));
     const status = body.status === undefined ? current.status : statuses.get(String(body.status));
     if (!role || !status) throw new Error("Unsupported role or status.");
@@ -64,19 +70,38 @@ export async function PATCH(request: Request) {
       if (error) throw error;
       if (!lead) throw new Error("The selected team lead is not active.");
     }
+    if (current.role === "team_lead" && role !== "team_lead") {
+      const { count, error } = await supabase.from("people").select("id", { count: "exact", head: true }).eq("team_lead_id", id);
+      if (error) throw error;
+      if (count) return Response.json({ error: "Reassign this team lead’s contributors before changing their role." }, { status: 409 });
+    }
     const payoutMethod = role === "team_lead" ? "team" : role === "admin" ? "none" : teamLeadId ? "contractor" : "direct";
-    const { error: updateError } = await supabase.from("people").update({ role, team_lead_id: teamLeadId, status, payout_method: payoutMethod }).eq("id", id);
+    const { error: updateError } = await supabase.from("people").update({ display_name: name, email, handle, role, team_lead_id: teamLeadId, status, payout_method: payoutMethod }).eq("id", id);
     if (updateError) throw updateError;
-    if (role === "contributor" && teamLeadId !== current.team_lead_id) {
-      const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-      const { error: closeError } = await supabase.from("team_assignments").update({ effective_to: yesterday }).eq("contributor_id", id).is("effective_to", null);
-      if (closeError) throw closeError;
+    const assignmentChanged = role !== current.role || teamLeadId !== current.team_lead_id;
+    if (current.role === "contributor" && assignmentChanged) {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: currentAssignment, error: assignmentQueryError } = await supabase.from("team_assignments").select("id,effective_from").eq("contributor_id", id).is("effective_to", null).maybeSingle();
+      if (assignmentQueryError) throw assignmentQueryError;
+      if (currentAssignment?.effective_from === today) {
+        const { error } = await supabase.from("team_assignments").delete().eq("id", currentAssignment.id);
+        if (error) throw error;
+      } else if (currentAssignment) {
+        const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+        const { error } = await supabase.from("team_assignments").update({ effective_to: yesterday }).eq("id", currentAssignment.id);
+        if (error) throw error;
+      }
+    }
+    if (role === "contributor" && assignmentChanged) {
       const { error: assignmentError } = await supabase.from("team_assignments").insert({ contributor_id: id, team_lead_id: teamLeadId, effective_from: new Date().toISOString().slice(0, 10), changed_by: actor.userId });
       if (assignmentError) throw assignmentError;
     }
-    await addAudit(supabase, actor, "person.updated", "person", id, `${current.display_name} updated`, "Role, team assignment, or status changed in the directory.");
+    await addAudit(supabase, actor, "person.updated", "person", id, `${name} updated`, "Identity, contact, role, team assignment, or status details changed in the directory.");
     return Response.json({ ok: true });
-  } catch (error) { return errorResponse(error); }
+  } catch (error) {
+    const duplicate = typeof error === "object" && error && "code" in error && error.code === "23505";
+    return duplicate ? Response.json({ error: "That receipt handle or email is already in use." }, { status: 409 }) : errorResponse(error);
+  }
 }
 
 export async function DELETE(request: Request) {

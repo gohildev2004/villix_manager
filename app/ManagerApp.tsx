@@ -8,7 +8,7 @@ type View = "overview" | "inbox" | "people" | "teams" | "payouts" | "reconciliat
 type Role = "Contributor" | "Team lead" | "Admin";
 type PersonStatus = "Active" | "Paused";
 type Person = { id: string; name: string; handle: string; email: string; role: Role; teamLeadId: string | null; status: PersonStatus; payoutMethod: string };
-type Entry = { id: string; receipt: string; date: string; name: string; handle: string; type: string; gross: number; payoutBps: number | null; ruleVersion: number };
+type Entry = { id: string; personId: string | null; receipt: string; date: string; name: string; handle: string; type: string; gross: number; payoutBps: number | null; ruleVersion: number };
 type Receipt = { id: string; filename: string; date: string; rows: number; total: number; status: "Verified" | "Needs review" | "Approved"; issues: string[] };
 type PaymentStatus = "Ready" | "Paid" | "Failed";
 type AuditEvent = { id: string; title: string; detail: string; actor: string; time: string; tone: "neutral" | "success" | "warning" };
@@ -98,7 +98,7 @@ export default function ManagerApp() {
   const payoutRows = useMemo<PayoutRow[]>(() => {
     const grouped = new Map<string, PayoutRow>();
     for (const entry of entries) {
-      const contributor = people.find((person) => person.handle.toLowerCase() === entry.handle.toLowerCase());
+      const contributor = people.find((person) => person.id === entry.personId) ?? people.find((person) => person.handle.toLowerCase() === entry.handle.toLowerCase());
       const lead = contributor?.teamLeadId ? people.find((person) => person.id === contributor.teamLeadId) : null;
       const recipient = lead || contributor;
       const key = recipient?.id || entry.handle;
@@ -117,9 +117,9 @@ export default function ManagerApp() {
       current.payout += payable(entry);
       const contributorKey = contributor?.id || entry.handle;
       const memberSet = new Set(entries.filter((candidate) => {
-        const person = people.find((item) => item.handle.toLowerCase() === candidate.handle.toLowerCase());
+        const person = people.find((item) => item.id === candidate.personId) ?? people.find((item) => item.handle.toLowerCase() === candidate.handle.toLowerCase());
         return (person?.teamLeadId || person?.id || candidate.handle) === key;
-      }).map((candidate) => candidate.handle));
+      }).map((candidate) => candidate.personId ?? candidate.handle.toLowerCase()));
       current.contributors = Math.max(memberSet.size, contributorKey ? 1 : 0);
       grouped.set(key, current);
     }
@@ -155,9 +155,13 @@ export default function ManagerApp() {
   async function updatePerson(id: string, changes: Partial<Person>) {
     setPeople((current) => current.map((person) => person.id === id ? { ...person, ...changes } : person));
     try {
-      await api("/api/people", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, ...changes }) });
-      await refreshState(); notify("Person updated");
+      await savePersonDetails(id, changes);
     } catch (error) { await refreshState(); notify(error instanceof Error ? error.message : "Person could not be updated"); }
+  }
+
+  async function savePersonDetails(id: string, changes: Partial<Person>) {
+    await api("/api/people", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, ...changes }) });
+    await refreshState(); notify("Person details updated");
   }
 
   async function removePerson(id: string) {
@@ -252,7 +256,7 @@ export default function ManagerApp() {
 
           {view === "overview" && <Overview totals={totals} openIssues={openIssues} receipts={receipts} payoutRows={payoutRows} payoutDate={payoutDate} setView={setView} />}
           {view === "inbox" && <Inbox receipts={receipts} approveReceipt={async (id) => { try { await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) }); await refreshState(); notify("Receipt approved"); } catch (error) { notify(error instanceof Error ? error.message : "Receipt could not be approved"); } }} deleteReceipt={deleteReceipt} reviewReceipt={setReviewReceipt} openImport={() => fileRef.current?.click()} />}
-          {view === "people" && <People people={people} entries={entries} query={query} setQuery={setQuery} updatePerson={updatePerson} removePerson={removePerson} openAdd={() => setPersonModal(true)} />}
+          {view === "people" && <People people={people} entries={entries} query={query} setQuery={setQuery} updatePerson={updatePerson} editPerson={savePersonDetails} removePerson={removePerson} openAdd={() => setPersonModal(true)} />}
           {view === "teams" && <Teams people={people} entries={entries} updatePerson={updatePerson} />}
           {view === "payouts" && <Payouts totals={totals} rows={payoutRows} payoutDate={payoutDate} setPayoutDate={setPayoutDate} status={batchStatus} approve={approveBatch} openIssues={openIssues} />}
           {view === "reconciliation" && <Reconciliation rows={payoutRows} batchStatus={batchStatus} statuses={paymentStatuses} setStatuses={setPaymentStatuses} notify={notify} addAudit={addAudit} readyPayments={readyPayments} />}
@@ -316,7 +320,7 @@ function Inbox({ receipts, approveReceipt, deleteReceipt, reviewReceipt, openImp
   </div>;
 }
 
-function People({ people, entries, query, setQuery, updatePerson, removePerson, openAdd }: { people: Person[]; entries: Entry[]; query: string; setQuery: (value: string) => void; updatePerson: (id: string, changes: Partial<Person>) => void; removePerson: (id: string) => Promise<void>; openAdd: () => void }) {
+function People({ people, entries, query, setQuery, updatePerson, editPerson, removePerson, openAdd }: { people: Person[]; entries: Entry[]; query: string; setQuery: (value: string) => void; updatePerson: (id: string, changes: Partial<Person>) => void; editPerson: (id: string, changes: Partial<Person>) => Promise<void>; removePerson: (id: string) => Promise<void>; openAdd: () => void }) {
   const [roleFilter, setRoleFilter] = useState<"All" | Role>("All");
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const leads = people.filter((person) => person.role === "Team lead");
@@ -325,18 +329,23 @@ function People({ people, entries, query, setQuery, updatePerson, removePerson, 
   return <div className="stack">
     <div className="command-row"><div className="search-field"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search people" aria-label="Search people" /></div><div className="command-actions"><select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as "All" | Role)}><option>All</option><option>Contributor</option><option>Team lead</option><option>Admin</option></select><button className="button primary" onClick={openAdd}>Add person</button></div></div>
     <section className="surface table-surface"><div className="data-table people-table"><div className="data-head"><span>Person</span><span>Role</span><span>Reports to</span><span>Payment route</span><span>Status</span><span></span></div>{visible.map((person) => <div className="data-row" key={person.id}><button className="identity-cell person-link" onClick={() => setSelectedPersonId(person.id)}><Avatar name={person.name}/><div><b>{person.name}</b><small>{person.handle} · {person.email}</small></div></button><select className="inline-select" value={person.role} onChange={(event) => updatePerson(person.id, { role: event.target.value as Role, teamLeadId: event.target.value === "Contributor" ? person.teamLeadId : null })}><option>Contributor</option><option>Team lead</option><option>Admin</option></select><div>{person.role === "Contributor" ? <select className="inline-select" value={person.teamLeadId || "direct"} onChange={(event) => updatePerson(person.id, { teamLeadId: event.target.value === "direct" ? null : event.target.value })}><option value="direct">No team lead</option>{leads.map((lead) => <option value={lead.id} key={lead.id}>{lead.name}</option>)}</select> : <span className="muted">—</span>}</div><span>{person.role === "Contributor" && person.teamLeadId ? "Via team lead" : person.payoutMethod}</span><Status value={person.status}/><div className="row-actions"><button className="profile-button" onClick={() => setSelectedPersonId(person.id)}>Profile</button><button onClick={() => updatePerson(person.id, { status: person.status === "Active" ? "Paused" : "Active" })}>{person.status === "Active" ? "Pause" : "Activate"}</button></div></div>)}</div>{!visible.length && <Empty title="No matching people" detail="Clear the search or add a new person." />}</section>
-    {selectedPerson && <PersonProfileModal person={selectedPerson} people={people} entries={entries} close={() => setSelectedPersonId(null)} remove={async () => { await removePerson(selectedPerson.id); setSelectedPersonId(null); }} />}
+    {selectedPerson && <PersonProfileModal person={selectedPerson} people={people} entries={entries} close={() => setSelectedPersonId(null)} edit={(changes) => editPerson(selectedPerson.id, changes)} remove={async () => { await removePerson(selectedPerson.id); setSelectedPersonId(null); }} />}
   </div>;
 }
 
-function PersonProfileModal({ person, people, entries, close, remove }: { person: Person; people: Person[]; entries: Entry[]; close: () => void; remove: () => Promise<void> }) {
+function PersonProfileModal({ person, people, entries, close, edit, remove }: { person: Person; people: Person[]; entries: Entry[]; close: () => void; edit: (changes: Partial<Person>) => Promise<void>; remove: () => Promise<void> }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState("");
-  const ownEntries = entries.filter((entry) => entry.handle.toLowerCase() === person.handle.toLowerCase());
+  const [editing, setEditing] = useState(false);
+  const [editRole, setEditRole] = useState<Role>(person.role);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState("");
+  const ownEntries = entries.filter((entry) => entry.personId === person.id || (!entry.personId && entry.handle.toLowerCase() === person.handle.toLowerCase()));
   const members = people.filter((candidate) => candidate.teamLeadId === person.id);
+  const memberIds = new Set(members.map((member) => member.id));
   const memberHandles = new Set(members.map((member) => member.handle.toLowerCase()));
-  const teamEntries = entries.filter((entry) => memberHandles.has(entry.handle.toLowerCase()));
+  const teamEntries = entries.filter((entry) => entry.personId ? memberIds.has(entry.personId) : memberHandles.has(entry.handle.toLowerCase()));
   const ownGross = ownEntries.reduce((sum, entry) => sum + entry.gross, 0);
   const ownPayable = ownEntries.reduce((sum, entry) => sum + payable(entry), 0);
   const teamPayable = teamEntries.reduce((sum, entry) => sum + payable(entry), 0);
@@ -359,11 +368,35 @@ function PersonProfileModal({ person, people, entries, close, remove }: { person
     finally { setRemoving(false); }
   }
 
+  async function saveEdits(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    setSaving(true); setEditError("");
+    try {
+      await edit({
+        name: String(data.get("name") ?? "").trim(),
+        email: String(data.get("email") ?? "").trim(),
+        handle: String(data.get("handle") ?? "").trim(),
+        role: editRole,
+        teamLeadId: editRole === "Contributor" && data.get("teamLeadId") !== "direct" ? String(data.get("teamLeadId")) : null,
+        status: String(data.get("status")) as PersonStatus,
+      });
+      setEditing(false);
+    } catch (error) { setEditError(error instanceof Error ? error.message : "Person details could not be updated."); }
+    finally { setSaving(false); }
+  }
+
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
     <section className="modal person-profile-modal" role="dialog" aria-modal="true" aria-label={`${person.name} profile`}>
-      <header className="person-profile-header"><div className="profile-identity"><Avatar name={person.name} large/><div><span>{person.role}</span><h2>{person.name}</h2><p>{person.handle} · {person.email}</p></div></div><button onClick={close} aria-label="Close">×</button></header>
+      <header className="person-profile-header"><div className="profile-identity"><Avatar name={person.name} large/><div><span>{person.role}</span><h2>{person.name}</h2><p>{person.handle} · {person.email}</p></div></div><div className="profile-header-actions"><button className="profile-edit-trigger" onClick={() => { setEditing((current) => !current); setEditError(""); setEditRole(person.role); }}>{editing ? "Done" : "Edit"}</button><button onClick={close} aria-label="Close">×</button></div></header>
       <div className="person-profile-body">
         <div className="profile-route"><Status value={person.status}/><span>{lead ? `Payouts route to ${lead.name}` : person.role === "Team lead" ? `${members.length} team member${members.length === 1 ? "" : "s"} route here` : person.payoutMethod === "direct" ? "Paid directly" : "No payout route"}</span></div>
+        {editing && <form className="edit-person-form" onSubmit={(event) => void saveEdits(event)}>
+          <div className="edit-person-heading"><div><h3>Edit person details</h3><p>Identity changes are audited. Previous submissions remain linked by permanent person ID.</p></div><span>Admin only</span></div>
+          <div className="modal-grid"><label>Full name<input name="name" required defaultValue={person.name} /></label><label>Receipt handle<input name="handle" required defaultValue={person.handle} /></label><label className="wide">Email address<input name="email" type="email" required defaultValue={person.email} /></label><label>Role<select value={editRole} onChange={(event) => setEditRole(event.target.value as Role)}><option>Contributor</option><option>Team lead</option><option>Admin</option></select></label><label>Status<select name="status" defaultValue={person.status}><option>Active</option><option>Paused</option></select></label>{editRole === "Contributor" && <label className="wide">Payment route<select name="teamLeadId" defaultValue={person.teamLeadId ?? "direct"}><option value="direct">No team lead · Direct contractor</option>{people.filter((candidate) => candidate.role === "Team lead" && candidate.id !== person.id).map((candidate) => <option value={candidate.id} key={candidate.id}>Via {candidate.name}</option>)}</select></label>}</div>
+          {editError && <div className="review-error">{editError}</div>}
+          <footer><button type="button" className="button secondary" onClick={() => { setEditing(false); setEditError(""); }}>Cancel</button><button type="submit" className="button primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button></footer>
+        </form>}
         <section className="profile-metrics">
           <div><span>Submissions</span><strong>{ownEntries.length}</strong><small>Verified entries</small></div>
           <div><span>Gross contributed</span><strong>{money.format(ownGross)}</strong><small>Across {receiptCount} receipt{receiptCount === 1 ? "" : "s"}</small></div>
