@@ -32,11 +32,12 @@ test("contains no deployment dependency on the previous platform", async () => {
   await assert.rejects(access(new URL("../.openai/hosting.json", import.meta.url)));
 });
 
-test("parses and validates receipt PDFs on the trusted server", async () => {
-  const [managerApp, receiptRoute, receiptParser, nextConfig] = await Promise.all([
+test("parses, reviews, and validates receipt PDFs on the trusted server", async () => {
+  const [managerApp, receiptRoute, receiptParser, receiptReview, nextConfig] = await Promise.all([
     readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/receipts/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/receipt-parser.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/receipt-review.ts", import.meta.url), "utf8"),
     readFile(new URL("../next.config.ts", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(managerApp, /pdfjs-dist|GlobalWorkerOptions/);
@@ -44,7 +45,12 @@ test("parses and validates receipt PDFs on the trusted server", async () => {
   assert.match(receiptRoute, /runtime = "nodejs"/);
   assert.match(receiptParser, /sourceTotalCents !== extractedTotalCents/);
   assert.match(receiptParser, /new Uint8Array\(buffer\)\.slice\(\)/);
+  assert.ok(receiptParser.includes("Member\\s+Type\\s+Amount"));
   assert.match(receiptRoute, /contribution_entries"\)\.delete\(\)\.eq\("receipt_id", receiptId\)/);
+  assert.match(receiptRoute, /action === "resolve_handle"/);
+  assert.match(receiptReview, /Unmatched handle/);
+  assert.match(receiptReview, /nextStatus = issues\.size \? "review" : "verified"/);
+  assert.match(managerApp, /Create and match/);
   assert.match(nextConfig, /serverExternalPackages: \["pdfjs-dist"\]/);
   assert.match(nextConfig, /outputFileTracingIncludes/);
   assert.match(nextConfig, /pdfjs-dist\/legacy\/build\/pdf\.worker\.mjs/);

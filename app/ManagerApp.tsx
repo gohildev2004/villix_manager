@@ -51,6 +51,7 @@ export default function ManagerApp() {
   const [audit, setAudit] = useState<AuditEvent[]>(initialAudit);
   const [query, setQuery] = useState("");
   const [personModal, setPersonModal] = useState(false);
+  const [reviewReceipt, setReviewReceipt] = useState<Receipt | null>(null);
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState("");
   const [toast, setToast] = useState("");
@@ -159,6 +160,16 @@ export default function ManagerApp() {
     } catch (error) { await refreshState(); notify(error instanceof Error ? error.message : "Person could not be updated"); }
   }
 
+  async function resolveReceiptHandle(receiptId: string, handle: string, personId: string) {
+    await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: receiptId, action: "resolve_handle", handle, personId }) });
+    setReviewReceipt(null); await refreshState(); notify(`${handle} matched and receipt verified`);
+  }
+
+  async function createAndResolveReceiptPerson(receiptId: string, handle: string, input: { name: string; email: string; teamLeadId: string | null }) {
+    const created = await api<{ id: string }>("/api/people", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, handle, role: "Contributor" }) });
+    await resolveReceiptHandle(receiptId, handle, created.id);
+  }
+
   async function mutateRules(method: "POST" | "PATCH" | "DELETE", body: Record<string, unknown>, successMessage: string) {
     try {
       await api("/api/rules", { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -229,7 +240,7 @@ export default function ManagerApp() {
           {parseError && <div className="alert error-alert"><span>!</span><div><b>Receipt not added</b><p>{parseError}</p></div><button onClick={() => setParseError("")}>Dismiss</button></div>}
 
           {view === "overview" && <Overview totals={totals} openIssues={openIssues} receipts={receipts} payoutRows={payoutRows} payoutDate={payoutDate} setView={setView} />}
-          {view === "inbox" && <Inbox receipts={receipts} approveReceipt={async (id) => { try { await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) }); await refreshState(); notify("Receipt approved"); } catch (error) { notify(error instanceof Error ? error.message : "Receipt could not be approved"); } }} openImport={() => fileRef.current?.click()} />}
+          {view === "inbox" && <Inbox receipts={receipts} approveReceipt={async (id) => { try { await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) }); await refreshState(); notify("Receipt approved"); } catch (error) { notify(error instanceof Error ? error.message : "Receipt could not be approved"); } }} reviewReceipt={setReviewReceipt} openImport={() => fileRef.current?.click()} />}
           {view === "people" && <People people={people} query={query} setQuery={setQuery} updatePerson={updatePerson} openAdd={() => setPersonModal(true)} />}
           {view === "teams" && <Teams people={people} entries={entries} updatePerson={updatePerson} />}
           {view === "payouts" && <Payouts totals={totals} rows={payoutRows} payoutDate={payoutDate} setPayoutDate={setPayoutDate} status={batchStatus} approve={approveBatch} openIssues={openIssues} />}
@@ -242,6 +253,7 @@ export default function ManagerApp() {
 
       <nav className="mobile-tabs" aria-label="Mobile navigation">{navigation.slice(0, 2).flatMap((section) => section.items).slice(0, 5).map((item) => <button key={item.id} className={view === item.id ? "selected" : ""} onClick={() => setView(item.id)}><i>{item.symbol}</i><span>{item.label}</span></button>)}</nav>
       {personModal && <PersonModal leads={people.filter((person) => person.role === "Team lead")} close={() => setPersonModal(false)} add={async (person) => { try { await api("/api/people", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(person) }); setPersonModal(false); await refreshState(); notify("Person added to Villix"); } catch (error) { notify(error instanceof Error ? error.message : "Person could not be added"); } }} />}
+      {reviewReceipt && <ReceiptReviewModal receipt={reviewReceipt} people={people} close={() => setReviewReceipt(null)} resolve={resolveReceiptHandle} createAndResolve={createAndResolveReceiptPerson} />}
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
     </div>
   );
@@ -275,12 +287,12 @@ function Overview({ totals, openIssues, receipts, payoutRows, payoutDate, setVie
 function Stat({ label, value, note }: { label: string; value: string; note: string }) { return <div className="stat"><span>{label}</span><strong>{value}</strong><small>{note}</small></div>; }
 function Avatar({ name, large = false }: { name: string; large?: boolean }) { return <span className={`person-avatar ${large ? "large" : ""}`}>{initials(name)}</span>; }
 
-function Inbox({ receipts, approveReceipt, openImport }: { receipts: Receipt[]; approveReceipt: (id: string) => Promise<void>; openImport: () => void }) {
+function Inbox({ receipts, approveReceipt, reviewReceipt, openImport }: { receipts: Receipt[]; approveReceipt: (id: string) => Promise<void>; reviewReceipt: (receipt: Receipt) => void; openImport: () => void }) {
   const [filter, setFilter] = useState<"All" | Receipt["status"]>("All");
   const visible = receipts.filter((receipt) => filter === "All" || receipt.status === filter);
   return <div className="stack">
     <div className="command-row"><div className="segmented">{(["All", "Needs review", "Verified", "Approved"] as const).map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}</button>)}</div><button className="button primary" onClick={openImport}>Import PDF</button></div>
-    <section className="surface table-surface"><div className="data-table inbox-table"><div className="data-head"><span>Receipt</span><span>Date</span><span>Entries</span><span>Total</span><span>Status</span><span></span></div>{visible.map((receipt) => <div className="data-row" key={receipt.id}><div className="file-cell"><i>PDF</i><div><b>{receipt.filename}</b><small>{receipt.issues.length ? receipt.issues.join(" · ") : "Source total verified"}</small></div></div><span>{receipt.date}</span><span>{receipt.rows}</span><strong>{money.format(receipt.total)}</strong><Status value={receipt.status}/><div className="row-actions">{receipt.status !== "Approved" && <button disabled={receipt.issues.length > 0} onClick={() => void approveReceipt(receipt.id)}>{receipt.issues.length ? "Resolve first" : "Approve"}</button>}<button aria-label="More receipt actions">•••</button></div></div>)}</div>{!visible.length && <Empty title="No receipts here" detail="Try a different status or import another PDF." />}</section>
+    <section className="surface table-surface"><div className="data-table inbox-table"><div className="data-head"><span>Receipt</span><span>Date</span><span>Entries</span><span>Total</span><span>Status</span><span></span></div>{visible.map((receipt) => <div className="data-row" key={receipt.id}><div className="file-cell"><i>PDF</i><div><b>{receipt.filename}</b><small>{receipt.issues.length ? receipt.issues.join(" · ") : "Source total verified"}</small></div></div><span>{receipt.date}</span><span>{receipt.rows}</span><strong>{money.format(receipt.total)}</strong><Status value={receipt.status}/><div className="row-actions">{receipt.status !== "Approved" && (receipt.issues.length ? <button className="resolve-button" onClick={() => reviewReceipt(receipt)}>Resolve</button> : <button onClick={() => void approveReceipt(receipt.id)}>Approve</button>)}<button aria-label="More receipt actions">•••</button></div></div>)}</div>{!visible.length && <Empty title="No receipts here" detail="Try a different status or import another PDF." />}</section>
     <div className="safety-note"><span>✓</span><div><b>Duplicate protection is active</b><p>File fingerprints and source totals are checked before a receipt can enter the ledger.</p></div></div>
   </div>;
 }
@@ -453,6 +465,50 @@ function Settings({ saved, save }: { saved: boolean; save: () => void }) {
     <div className="settings-section"><div><h2>Notifications</h2><p>Choose which operational changes reach admins.</p></div><div className="toggle-list"><label>Receipt needs review<input className="toggle-input" type="checkbox" defaultChecked/><span className="toggle on"><i/></span></label><label>Payout approved<input className="toggle-input" type="checkbox" defaultChecked/><span className="toggle on"><i/></span></label><label>Payment failed<input className="toggle-input" type="checkbox" defaultChecked/><span className="toggle on"><i/></span></label><label>Weekly summary<input className="toggle-input" type="checkbox"/><span className="toggle"><i/></span></label></div></div>
     <div className="settings-footer"><span>{saved ? "✓ Changes saved" : "Settings apply to future batches."}</span><button className="button primary" onClick={save}>Save changes</button></div>
   </section><aside className="surface security-card"><span className="security-symbol">⌾</span><h2>Private workspace</h2><p>Only explicitly authorized administrators can access Villix Manager.</p><div><span>Authentication</span><strong>Required</strong></div><div><span>Session logging</span><strong>Active</strong></div><div><span>Payment detail access</span><strong>Restricted</strong></div></aside></div>;
+}
+
+function ReceiptReviewModal({ receipt, people, close, resolve, createAndResolve }: { receipt: Receipt; people: Person[]; close: () => void; resolve: (receiptId: string, handle: string, personId: string) => Promise<void>; createAndResolve: (receiptId: string, handle: string, input: { name: string; email: string; teamLeadId: string | null }) => Promise<void> }) {
+  const unmatchedHandles = receipt.issues.flatMap((issue) => issue.startsWith("Unmatched handle ") ? [issue.slice("Unmatched handle ".length)] : []);
+  const otherIssues = receipt.issues.filter((issue) => !issue.startsWith("Unmatched handle "));
+  const candidates = people.filter((person) => person.status === "Active" && person.role !== "Admin");
+  const leads = people.filter((person) => person.status === "Active" && person.role === "Team lead");
+  const [selected, setSelected] = useState<Record<string, string>>({});
+  const [creating, setCreating] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function match(handle: string) {
+    const personId = selected[handle];
+    if (!personId) return;
+    setBusy(true); setError("");
+    try { await resolve(receipt.id, handle, personId); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "The handle could not be matched."); setBusy(false); }
+  }
+
+  async function create(event: FormEvent<HTMLFormElement>, handle: string) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    setBusy(true); setError("");
+    try {
+      await createAndResolve(receipt.id, handle, {
+        name: String(data.get("name") ?? "").trim(),
+        email: String(data.get("email") ?? "").trim(),
+        teamLeadId: data.get("teamLeadId") === "direct" ? null : String(data.get("teamLeadId") ?? ""),
+      });
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "The contributor could not be created."); setBusy(false); }
+  }
+
+  return <div className="modal-backdrop"><section className="modal receipt-review-modal" role="dialog" aria-modal="true" aria-labelledby="receipt-review-title">
+    <header><div><span>Receipt review</span><h2 id="receipt-review-title">Resolve before payout</h2></div><button onClick={close} aria-label="Close">×</button></header>
+    <div className="receipt-review-body"><div className="review-file"><i>PDF</i><div><b>{receipt.filename}</b><span>{receipt.rows} entries · {money.format(receipt.total)}</span></div><Status value={receipt.status}/></div>
+      <p className="review-intro">Match each receipt handle to the person who produced the work. Their payable amount will then follow their direct or team-lead route.</p>
+      {unmatchedHandles.map((handle) => <section className="handle-resolution" key={handle}><div className="handle-resolution-title"><span>Unmatched handle</span><strong>{handle}</strong></div>
+        {creating === handle ? <form onSubmit={(event) => void create(event, handle)}><div className="modal-grid"><label>Contributor name<input name="name" required defaultValue={handle.slice(1).replaceAll("_", " ")} /></label><label>Email address<input name="email" type="email" required placeholder="person@example.com" /></label><label className="wide">Payment route<select name="teamLeadId" defaultValue="direct"><option value="direct">Direct contractor</option>{leads.map((lead) => <option value={lead.id} key={lead.id}>Via {lead.name}</option>)}</select></label></div><div className="resolution-actions"><button type="button" className="button secondary" onClick={() => setCreating(null)}>Back</button><button className="button primary" disabled={busy} type="submit">{busy ? "Creating…" : "Create and match"}</button></div></form> : <><label className="match-person-label">Match to an existing person<select value={selected[handle] ?? ""} onChange={(event) => setSelected((current) => ({ ...current, [handle]: event.target.value }))}><option value="">Choose person</option>{candidates.map((person) => <option value={person.id} key={person.id}>{person.name} · {person.handle} · {person.role}</option>)}</select></label><div className="resolution-actions"><button className="button secondary" onClick={() => setCreating(handle)}>Create contributor</button><button className="button primary" disabled={busy || !selected[handle]} onClick={() => void match(handle)}>{busy ? "Matching…" : "Match person"}</button></div></>}
+      </section>)}
+      {otherIssues.map((issue) => <div className="modal-note warning" key={issue}><span>!</span>{issue}. Update the contribution policy in Rules, then return here.</div>)}
+      {error && <div className="review-error">{error}</div>}
+    </div>
+  </section></div>;
 }
 
 function PersonModal({ leads, close, add }: { leads: Person[]; close: () => void; add: (person: Person) => void }) {

@@ -1,5 +1,6 @@
 import { addAudit, errorResponse, requireAdmin, safeJson, type VillixClient } from "@/lib/villix-server";
 import { parseReceiptPdf, ReceiptValidationError } from "@/lib/receipt-parser";
+import { reconcileReceipt } from "@/lib/receipt-review";
 
 export const runtime = "nodejs";
 
@@ -136,8 +137,25 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const { actor, supabase } = await requireAdmin();
-    const body = await request.json() as { id?: string; action?: string };
-    if (body.action !== "approve" || !body.id) throw new Error("Unsupported receipt action.");
+    const body = await request.json() as { id?: string; action?: string; handle?: string; personId?: string };
+    if (!body.id) throw new ReceiptValidationError("Receipt ID is required.");
+
+    if (body.action === "resolve_handle") {
+      const handle = String(body.handle ?? "").trim().toLowerCase();
+      const personId = String(body.personId ?? "");
+      if (!/^@[a-z0-9_.-]{2,64}$/.test(handle) || !personId) throw new ReceiptValidationError("Choose a person for this receipt handle.");
+      const { data: person, error: personError } = await supabase.from("people").select("id,display_name,handle,status").eq("id", personId).eq("status", "active").maybeSingle();
+      if (personError) throw personError;
+      if (!person) throw new ReceiptValidationError("The selected person is not active.");
+      const { data: matchedEntries, error: matchError } = await supabase.from("contribution_entries").update({ contributor_id: person.id }).eq("receipt_id", body.id).eq("source_handle", handle).select("id");
+      if (matchError) throw matchError;
+      if (!matchedEntries?.length) throw new ReceiptValidationError("No unresolved entries use that handle.");
+      const result = await reconcileReceipt(supabase, body.id);
+      await addAudit(supabase, actor, "receipt.handle_resolved", "receipt", body.id, `${handle} matched`, `${matchedEntries.length} contribution rows were assigned to ${person.display_name} (${person.handle}).`, "success");
+      return Response.json(result);
+    }
+
+    if (body.action !== "approve") throw new ReceiptValidationError("Unsupported receipt action.");
     const { data: receipt, error } = await supabase.from("receipts").select("filename,status,issues").eq("id", body.id).maybeSingle();
     if (error) throw error;
     if (!receipt) return Response.json({ error: "Receipt not found." }, { status: 404 });
@@ -151,6 +169,7 @@ export async function PATCH(request: Request) {
     await addAudit(supabase, actor, "receipt.approved", "receipt", body.id, `${receipt.filename} approved`, "The verified source rows are eligible for the next payout batch.", "success");
     return Response.json({ ok: true });
   } catch (error) {
+    if (error instanceof ReceiptValidationError) return Response.json({ error: error.message }, { status: 400 });
     return errorResponse(error);
   }
 }

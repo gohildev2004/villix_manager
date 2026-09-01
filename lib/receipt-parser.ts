@@ -51,7 +51,7 @@ export async function parseReceiptPdf(buffer: ArrayBuffer): Promise<ParsedReceip
   while ((match = pattern.exec(text)) !== null) {
     rows.push({
       id: crypto.randomUUID(),
-      name: match[1].trim(),
+      name: match[1].replace(/^.*?\bMember\s+Type\s+Amount\s+/i, "").trim(),
       handle: `@${match[2]}`.toLowerCase(),
       type: match[3].trim(),
       gross: Number(match[4].replace(/,/g, "")),
