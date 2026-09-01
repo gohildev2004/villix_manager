@@ -21,6 +21,8 @@ type ContributionRule = { version: number; type: string; label: string; descript
 type RuleInput = Omit<ContributionRule, "version">;
 type PayoutSnapshot = { id: string; exchangeRate: number; adjustmentBps: number; grossInr: number; retainedInr: number; payableInr: number; provider: string; recipients: Array<{ personId: string; status: string; currency: string; amount: number; provider: string | null }> };
 type ProviderReadiness = { razorpayxConfigured: boolean; webhookConfigured: boolean; payoutsLive: boolean };
+type HealthCheckStatus = "healthy" | "warning" | "error";
+type OperationalHealth = { status: HealthCheckStatus; environment: string; checkedAt: string; checks: Array<{ id: string; label: string; status: HealthCheckStatus; detail: string }>; counts: { receiptsNeedingReview: number; stuckPayouts: number; failedTransfers: number; failedWebhooks: number }; lastWebhookAt: string | null };
 type ServerState = { people: Person[]; entries: Entry[]; receiptEntries: Entry[]; receipts: Receipt[]; audit: AuditEvent[]; batchStatus: "Draft" | "Approved"; payoutDate: string; payoutDay: PayoutWeekday; paymentStatuses: Record<string, PaymentStatus>; payoutSnapshot: PayoutSnapshot | null; providerReadiness: ProviderReadiness; ruleVersions: RuleVersion[]; rules: ContributionRule[]; actor: { name: string; email: string; role: string }; persistence: string };
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -31,6 +33,7 @@ const initialPeople: Person[] = [];
 const initialEntries: Entry[] = [];
 const initialReceipts: Receipt[] = [];
 const initialAudit: AuditEvent[] = [];
+const initialHealth: OperationalHealth = { status: "warning", environment: "loading", checkedAt: "", checks: [], counts: { receiptsNeedingReview: 0, stuckPayouts: 0, failedTransfers: 0, failedWebhooks: 0 }, lastWebhookAt: null };
 
 const viewCopy: Record<View, { eyebrow: string; title: string; subtitle: string }> = {
   overview: { eyebrow: "Operations", title: "Good morning.", subtitle: "Everything requiring attention is collected here." },
@@ -76,6 +79,7 @@ export default function ManagerApp() {
   const [paymentStatuses, setPaymentStatuses] = useState<Record<string, PaymentStatus>>({});
   const [payoutSnapshot, setPayoutSnapshot] = useState<PayoutSnapshot | null>(null);
   const [providerReadiness, setProviderReadiness] = useState<ProviderReadiness>({ razorpayxConfigured: false, webhookConfigured: false, payoutsLive: false });
+  const [operationalHealth, setOperationalHealth] = useState<OperationalHealth>(initialHealth);
   const [exchangeRate, setExchangeRate] = useState("");
   const [settlementAdjustment, setSettlementAdjustment] = useState("0");
   const [ruleVersions, setRuleVersions] = useState<RuleVersion[]>([]);
@@ -94,10 +98,14 @@ export default function ManagerApp() {
 
   async function refreshState() {
     try {
-      const state = await api<ServerState>("/api/state", { cache: "no-store" });
+      const [state, health] = await Promise.all([
+        api<ServerState>("/api/state", { cache: "no-store" }),
+        api<OperationalHealth>("/api/monitoring", { cache: "no-store" }).catch(() => initialHealth),
+      ]);
       setPeople(state.people); setEntries(state.entries); setReceiptEntries(state.receiptEntries); setReceipts(state.receipts); setAudit(state.audit);
       setBatchStatus(state.batchStatus); setPayoutDay(state.payoutDay); setPayoutDate(state.payoutDate || scheduledPayoutDate(activePayoutPeriod.end, state.payoutDay)); setPaymentStatuses(state.paymentStatuses);
       setPayoutSnapshot(state.payoutSnapshot); setProviderReadiness(state.providerReadiness);
+      setOperationalHealth(health);
       if (state.payoutSnapshot) { setExchangeRate(String(state.payoutSnapshot.exchangeRate)); setSettlementAdjustment(String(state.payoutSnapshot.adjustmentBps / 100)); }
       setRuleVersions(state.ruleVersions); setRules(state.rules);
       setActorName(state.actor.name); setServerStatus("online");
@@ -310,7 +318,7 @@ export default function ManagerApp() {
           {parsing && <div className="processing-banner"><span className="spinner"/>Reading and verifying your receipt…</div>}
           {parseError && <div className="alert error-alert"><span>!</span><div><b>Receipt not added</b><p>{parseError}</p></div><button onClick={() => setParseError("")}>Dismiss</button></div>}
 
-          {view === "overview" && <Overview totals={totals} openIssues={openIssues} receipts={receipts} payoutRows={payoutRows} people={people} invitePortals={invitePayeePortals} setView={setView} />}
+          {view === "overview" && <Overview totals={totals} openIssues={openIssues} receipts={receipts} payoutRows={payoutRows} people={people} monitoring={operationalHealth} invitePortals={invitePayeePortals} setView={setView} />}
           {view === "inbox" && <Inbox receipts={receipts} entries={receiptEntries} people={people} approveReceipt={async (id) => { try { await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) }); await refreshState(); notify("Receipt approved"); } catch (error) { notify(error instanceof Error ? error.message : "Receipt could not be approved"); } }} deleteReceipt={deleteReceipt} reviewReceipt={setReviewReceipt} openImport={() => fileRef.current?.click()} />}
           {view === "people" && <People people={people} entries={entries} query={query} setQuery={setQuery} updatePerson={updatePerson} editPerson={savePersonDetails} invitePortal={async (id) => invitePayeePortals([id])} suspendPortal={suspendPayeePortal} removePerson={removePerson} openAdd={() => setPersonModal(true)} />}
           {view === "teams" && <Teams people={people} entries={entries} updatePerson={updatePerson} />}
@@ -330,7 +338,7 @@ export default function ManagerApp() {
   );
 }
 
-function Overview({ totals, openIssues, receipts, payoutRows, people, invitePortals, setView }: { totals: Totals; openIssues: number; receipts: Receipt[]; payoutRows: PayoutRow[]; people: Person[]; invitePortals: (ids: string[]) => Promise<string>; setView: (view: View) => void }) {
+function Overview({ totals, openIssues, receipts, payoutRows, people, monitoring, invitePortals, setView }: { totals: Totals; openIssues: number; receipts: Receipt[]; payoutRows: PayoutRow[]; people: Person[]; monitoring: OperationalHealth; invitePortals: (ids: string[]) => Promise<string>; setView: (view: View) => void }) {
   const attention = [
     { title: `${receipts.filter((receipt) => receipt.status === "Verified").length} receipts ready for approval`, detail: "Source totals and contribution rows have been verified.", action: "Review", view: "inbox" as View, visible: receipts.some((receipt) => receipt.status === "Verified") },
     { title: "All contributor handles are matched", detail: "Every imported handle resolves to one active directory record.", action: "View people", view: "people" as View, visible: true },
@@ -352,7 +360,18 @@ function Overview({ totals, openIssues, receipts, payoutRows, people, invitePort
       <section className="surface"><div className="section-header"><div><h2>Payout preview</h2><p>Grouped by final payment recipient.</p></div><button className="text-button" onClick={() => setView("payouts")}>View all</button></div><div className="compact-list">{payoutRows.slice(0, 4).map((row) => <div className="recipient-row" key={row.key}><Avatar name={row.name}/><div className="grow"><b>{row.name}</b><span>{row.route} · {row.contributors} contributor{row.contributors === 1 ? "" : "s"}</span></div><strong>{money.format(row.payout)}</strong></div>)}</div></section>
     </div>
     <RecipientOnboarding people={people} invitePortals={invitePortals} openPeople={() => setView("people")} />
+    <SystemHealth monitoring={monitoring} />
   </div>;
+}
+
+function SystemHealth({ monitoring }: { monitoring: OperationalHealth }) {
+  const checked = monitoring.checkedAt ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(monitoring.checkedAt)) : "Checking now";
+  return <section className="surface system-health-card">
+    <div className="section-header"><div><h2>System health</h2><p>Private operational checks for imports, storage, payouts, and provider events.</p></div><div className={`health-overall ${monitoring.status}`}><span></span>{monitoring.status === "healthy" ? "All systems healthy" : monitoring.status === "error" ? "Action required" : "Review warnings"}</div></div>
+    <div className="health-grid">{monitoring.checks.map((check) => <div className={`health-check ${check.status}`} key={check.id}><span className="health-dot"></span><div><b>{check.label}</b><p>{check.detail}</p></div></div>)}</div>
+    {!monitoring.checks.length && <Empty title="Monitoring is connecting" detail="Operational checks will appear after the private monitoring endpoint responds." />}
+    <div className="health-footer"><span>Environment: <b>{monitoring.environment}</b></span><span>Last checked: <b>{checked}</b></span>{monitoring.lastWebhookAt && <span>Last webhook: <b>{new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(monitoring.lastWebhookAt))}</b></span>}</div>
+  </section>;
 }
 
 function RecipientOnboarding({ people, invitePortals, openPeople }: { people: Person[]; invitePortals: (ids: string[]) => Promise<string>; openPeople: () => void }) {

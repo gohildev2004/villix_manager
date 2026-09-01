@@ -9,7 +9,9 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs",
+    "test": "npm run test:behavior && npm run build && npm run test:rendered",
+    "test:behavior": "node --test tests/behavioral-rules.test.mjs",
+    "test:rendered": "node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern .next"
   },
   "dependencies": {

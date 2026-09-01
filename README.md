@@ -4,6 +4,14 @@ Private operations software for Villix administrators. It manages contributors a
 
 Owner account setup, security, provider onboarding, testing, weekly operations, and go-live requirements are tracked in [OWNER_SETUP_AND_LAUNCH.md](./OWNER_SETUP_AND_LAUNCH.md).
 
+## Reliability workflow
+
+Every push and pull request to `main` runs GitHub Actions on Node 22. The workflow lints the repository, executes behavioral payout and receipt tests, builds the production application, and runs integration assertions. The behavioral suite verifies actual calculation outcomes, including bonus retention, the 50% problem split, direct and team-lead routing, historical assignments, unknown rules, unmatched contributors, and settlement adjustments.
+
+Production uses `/api/health/ready` as its Render readiness probe. That route checks Supabase using a server-only client but returns only `ready` or `unavailable`. Authenticated administrators receive detailed checks through `/api/monitoring`, displayed under **Overview → System health**. It reports database and receipt-storage availability, missing server configuration, review receipts, stuck payout batches, failed or stale transfer attempts, and RazorpayX webhook health without exposing secrets publicly.
+
+`render.staging.yaml` is the isolated staging blueprint. Create a separate Render Blueprint from that file and connect it to a separate Supabase project containing fake data only. Staging starts with `PAYOUTS_LIVE_ENABLED=false`; add only RazorpayX test credentials when they become available. Never point staging at the production Supabase URL or reuse live provider credentials.
+
 ## Financial policy
 
 - `problem`: 50% retained by Villix, 50% payable

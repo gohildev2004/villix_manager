@@ -242,8 +242,12 @@ RazorpayX Vendor Portal references:
 
 ## 9. Staging and payout testing
 
-- [ ] Create a separate Render staging web service before connecting RazorpayX. Do not reuse production credentials or beneficiaries.
-- [ ] Use a separate staging hostname and add its OTP callback to Supabase only while required.
+- [ ] Create a separate Supabase staging project, apply the committed migrations, and use fake data only.
+- [ ] Create a separate Render Blueprint from `render.staging.yaml`. Do not reuse production credentials or beneficiaries.
+- [ ] Connect the staging Blueprint only to the staging Supabase URL, publishable key, and server secret.
+- [ ] Use a separate staging hostname and add its OTP callback to the staging Supabase project only.
+- [ ] Confirm `/api/health/ready` reports ready after the staging database is connected.
+- [ ] Confirm GitHub Actions passes lint, behavioral tests, the production build, and rendered integration checks before merging.
 - [ ] Use RazorpayX test credentials in staging.
 - [ ] Keep production `PAYOUTS_LIVE_ENABLED=false`.
 - [ ] In staging only, set `PAYOUTS_LIVE_ENABLED=true` after test credentials and IP configuration are complete.
@@ -268,6 +272,8 @@ Test this entire sequence:
 16. Retry the same payout and confirm the same idempotency key prevents duplication.
 17. Confirm a second payout with a new idempotency key cannot be created accidentally while the first is processing.
 18. Export and reconcile the weekly distribution against the receipt and provider totals.
+
+The authenticated **Overview → System health** panel must show no red checks before payout testing. Yellow receipt warnings are expected only for deliberate review scenarios. `/api/health` is the public liveness response; `/api/health/ready` is the database-backed Render readiness response and intentionally exposes no configuration details.
 
 RazorpayX requires `X-Payout-Idempotency` for payout requests: <https://razorpay.com/docs/api/x/payout-idempotency/make-request/>
 

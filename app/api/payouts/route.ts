@@ -1,17 +1,6 @@
 import { addAudit, errorResponse, requireAdmin, safeJson } from "@/lib/villix-server";
 import { isPayoutWeekday, scheduledPayoutDate } from "@/lib/payout-schedule";
-
-type Recipient = {
-  personId: string;
-  routingType: "direct" | "team";
-  grossCents: number;
-  payableCents: number;
-  contributors: Map<string, { name: string; handle: string; grossCents: number; payableCents: number }>;
-};
-
-function settlementAmount(sourceCents: number, exchangeRate: number, adjustmentBps: number) {
-  return Math.round(sourceCents * exchangeRate * (10000 - adjustmentBps) / 10000);
-}
+import { calculatePayoutDistribution, settlementAmount } from "@/lib/payout-calculation";
 
 async function digest(value: string) {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
@@ -82,48 +71,13 @@ export async function POST(request: Request) {
     ]);
     if (peopleError) throw peopleError;
     if (assignmentsError) throw assignmentsError;
-    const peopleById = new Map((people ?? []).map((person) => [person.id, person]));
-
-    const recipients = new Map<string, Recipient>();
-    let totalGrossCents = 0;
-    let totalPayableCents = 0;
-    const calculationEntries: Array<{ id: string; grossCents: number; type: string; recipient: string }> = [];
-    for (const entry of entries ?? []) {
-      const contributorId = entry.contributor_id!;
-      const person = peopleById.get(contributorId);
-      if (!person) throw new Error(`Contributor ${entry.source_handle} is no longer available.`);
-      const receiptDate = entry.receipts.receipt_date;
-      const historical = (assignments ?? []).find((assignment) => assignment.contributor_id === contributorId && assignment.effective_from <= receiptDate && (!assignment.effective_to || assignment.effective_to >= receiptDate));
-      const teamLeadId = historical ? historical.team_lead_id : person.team_lead_id;
-      const recipientId = teamLeadId ?? contributorId;
-      const payoutCents = entry.payout_cents!;
-      totalGrossCents += entry.gross_cents;
-      totalPayableCents += payoutCents;
-      calculationEntries.push({ id: entry.id, grossCents: entry.gross_cents, type: entry.type, recipient: recipientId });
-
-      const recipient = recipients.get(recipientId) ?? {
-        personId: recipientId,
-        routingType: teamLeadId ? "team" : "direct",
-        grossCents: 0,
-        payableCents: 0,
-        contributors: new Map(),
-      };
-      recipient.grossCents += entry.gross_cents;
-      recipient.payableCents += payoutCents;
-      const contributor = recipient.contributors.get(contributorId) ?? {
-        name: person.display_name,
-        handle: entry.source_handle,
-        grossCents: 0,
-        payableCents: 0,
-      };
-      contributor.grossCents += entry.gross_cents;
-      contributor.payableCents += payoutCents;
-      recipient.contributors.set(contributorId, contributor);
-      recipients.set(recipientId, recipient);
-    }
-
-    const payableRecipients = [...recipients.values()].filter((recipient) => recipient.payableCents > 0);
-    const recipientSnapshots = payableRecipients.map((recipient) => {
+    const distribution = calculatePayoutDistribution({
+      entries: (entries ?? []).map((entry) => ({ ...entry, receipt_date: entry.receipts.receipt_date })),
+      people: people ?? [],
+      assignments: assignments ?? [],
+    });
+    const { totalGrossCents, totalPayableCents, calculationEntries } = distribution;
+    const recipientSnapshots = distribution.recipients.map((recipient) => {
       const grossSettlementCents = settlementAmount(recipient.grossCents, exchangeRate, settlementAdjustmentBps);
       const payableSettlementCents = settlementAmount(recipient.payableCents, exchangeRate, settlementAdjustmentBps);
       return {
@@ -177,7 +131,7 @@ export async function POST(request: Request) {
         batch_id: batchId,
         person_id: recipient.personId,
         routing_type: recipient.routingType,
-        contributor_count: recipient.contributors.size,
+        contributor_count: recipient.contributors.length,
         gross_cents: recipient.grossCents,
         retained_cents: recipient.grossCents - recipient.payableCents,
         payable_cents: recipient.payableCents,
@@ -188,7 +142,7 @@ export async function POST(request: Request) {
         payout_amount_minor: snapshot.payoutAmountMinor,
         payout_fx_rate: snapshot.payoutFxRate,
         payout_provider: snapshot.provider,
-        contributor_breakdown: [...recipient.contributors.values()].map((contributor) => ({ ...contributor, grossSettlementCents: settlementAmount(contributor.grossCents, exchangeRate, settlementAdjustmentBps), payableSettlementCents: settlementAmount(contributor.payableCents, exchangeRate, settlementAdjustmentBps) })),
+        contributor_breakdown: recipient.contributors.map((contributor) => ({ ...contributor, grossSettlementCents: settlementAmount(contributor.grossCents, exchangeRate, settlementAdjustmentBps), payableSettlementCents: settlementAmount(contributor.payableCents, exchangeRate, settlementAdjustmentBps) })),
         status: "ready",
       })));
       if (recipientError) throw recipientError;

@@ -33,19 +33,21 @@ test("contains no deployment dependency on the previous platform", async () => {
 });
 
 test("parses, reviews, and validates receipt PDFs on the trusted server", async () => {
-  const [managerApp, receiptRoute, receiptParser, receiptReview, nextConfig] = await Promise.all([
+  const [managerApp, receiptRoute, receiptParser, receiptText, receiptReview, nextConfig] = await Promise.all([
     readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/receipts/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/receipt-parser.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/receipt-text.js", import.meta.url), "utf8"),
     readFile(new URL("../lib/receipt-review.ts", import.meta.url), "utf8"),
     readFile(new URL("../next.config.ts", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(managerApp, /pdfjs-dist|GlobalWorkerOptions/);
   assert.match(receiptRoute, /parseReceiptPdf\(buffer\)/);
   assert.match(receiptRoute, /runtime = "nodejs"/);
-  assert.match(receiptParser, /sourceTotalCents !== extractedTotalCents/);
+  assert.match(receiptParser, /parseReceiptText\(text\)/);
+  assert.match(receiptText, /sourceTotalCents !== extractedTotalCents/);
   assert.match(receiptParser, /new Uint8Array\(buffer\)\.slice\(\)/);
-  assert.ok(receiptParser.includes("Member\\s+Type\\s+Amount"));
+  assert.ok(receiptText.includes("Member\\s+Type\\s+Amount"));
   assert.match(receiptRoute, /contribution_entries"\)\.delete\(\)\.eq\("receipt_id", receiptId\)/);
   assert.match(receiptRoute, /action === "resolve_handle"/);
   assert.match(receiptRoute, /export async function DELETE/);
@@ -59,6 +61,28 @@ test("parses, reviews, and validates receipt PDFs on the trusted server", async 
   assert.match(nextConfig, /outputFileTracingIncludes/);
   assert.match(nextConfig, /pdfjs-dist\/legacy\/build\/pdf\.worker\.mjs/);
   await access(new URL("../.next/standalone/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs", import.meta.url));
+});
+
+test("ships isolated staging, CI, behavioral rules, and private operational monitoring", async () => {
+  const [workflow, staging, behavior, monitoring, readiness, managerApp, render] = await Promise.all([
+    readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8"),
+    readFile(new URL("../render.staging.yaml", import.meta.url), "utf8"),
+    readFile(new URL("./behavioral-rules.test.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/monitoring/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/health/ready/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../render.yaml", import.meta.url), "utf8"),
+  ]);
+  assert.match(workflow, /npm run test:behavior/);
+  assert.match(workflow, /npm run build/);
+  assert.match(staging, /villix-manager-staging/);
+  assert.match(staging, /PAYOUTS_LIVE_ENABLED[\s\S]*"false"/);
+  assert.match(behavior, /historical team assignment/);
+  assert.match(behavior, /retains bonus contributions/);
+  assert.match(monitoring, /requireAdmin/);
+  assert.match(readiness, /workspace_settings/);
+  assert.match(managerApp, /System health/);
+  assert.match(render, /healthCheckPath: \/api\/health\/ready/);
 });
 
 test("provides person performance profiles and protects financial history on removal", async () => {
