@@ -252,6 +252,7 @@ export type Database = {
           pan_last4: string | null
           payout_provider: string | null
           person_id: string
+          provider_contact_id: string | null
           provider_recipient_id: string | null
           updated_at: string
         }
@@ -267,6 +268,7 @@ export type Database = {
           pan_last4?: string | null
           payout_provider?: string | null
           person_id: string
+          provider_contact_id?: string | null
           provider_recipient_id?: string | null
           updated_at?: string
         }
@@ -282,6 +284,7 @@ export type Database = {
           pan_last4?: string | null
           payout_provider?: string | null
           person_id?: string
+          provider_contact_id?: string | null
           provider_recipient_id?: string | null
           updated_at?: string
         }
@@ -308,6 +311,8 @@ export type Database = {
           payout_recipient_id: string
           provider: string | null
           provider_reference: string | null
+          provider_status: string | null
+          provider_status_details: Json
           status: string
         }
         Insert: {
@@ -322,6 +327,8 @@ export type Database = {
           payout_recipient_id: string
           provider?: string | null
           provider_reference?: string | null
+          provider_status?: string | null
+          provider_status_details?: Json
           status: string
         }
         Update: {
@@ -336,6 +343,8 @@ export type Database = {
           payout_recipient_id?: string
           provider?: string | null
           provider_reference?: string | null
+          provider_status?: string | null
+          provider_status_details?: Json
           status?: string
         }
         Relationships: [
@@ -556,6 +565,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      provider_webhook_events: {
+        Row: {
+          error: string | null
+          event_id: string
+          event_type: string
+          payload_sha256: string
+          processed_at: string | null
+          provider: string
+          provider_reference: string | null
+          received_at: string
+          status: string
+        }
+        Insert: {
+          error?: string | null
+          event_id: string
+          event_type: string
+          payload_sha256: string
+          processed_at?: string | null
+          provider?: string
+          provider_reference?: string | null
+          received_at?: string
+          status?: string
+        }
+        Update: {
+          error?: string | null
+          event_id?: string
+          event_type?: string
+          payload_sha256?: string
+          processed_at?: string | null
+          provider?: string
+          provider_reference?: string | null
+          received_at?: string
+          status?: string
+        }
+        Relationships: []
       }
       receipts: {
         Row: {

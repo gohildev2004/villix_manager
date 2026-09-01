@@ -13,7 +13,7 @@ export async function GET() {
   try {
     const { actor, supabase } = await requireAdmin();
     const [peopleQuery, entriesQuery, receiptEntriesQuery, receiptsQuery, auditQuery, batchQuery, ruleVersionsQuery, rulesQuery, settingsQuery] = await Promise.all([
-      supabase.from("people").select("*,payee_profiles(onboarding_status,payout_provider,provider_recipient_id,bank_last4)").order("display_name"),
+      supabase.from("people").select("*,payee_profiles(onboarding_status,payout_provider,provider_contact_id,provider_recipient_id,bank_last4,ifsc,legal_name)").order("display_name"),
       supabase.from("contribution_entries").select("*, receipts!inner(filename,receipt_date,status)").in("receipts.status", ["verified", "approved"]).order("created_at"),
       supabase.from("contribution_entries").select("*, receipts!inner(filename,receipt_date,status)").order("created_at"),
       supabase.from("receipts").select("*, contribution_entries(count)").order("receipt_date", { ascending: false }).order("created_at", { ascending: false }),
@@ -38,8 +38,11 @@ export async function GET() {
       currency: person.currency,
       payoutReady: profile?.onboarding_status === "ready" && Boolean(profile.provider_recipient_id),
       payoutProvider: profile?.payout_provider,
+      providerContactId: profile?.provider_contact_id,
       providerRecipientId: profile?.provider_recipient_id,
       bankLast4: profile?.bank_last4,
+      ifsc: profile?.ifsc,
+      legalName: profile?.legal_name,
       payoutMethod: person.role === "team_lead" ? "Team payout account" : person.role === "admin" ? "Not applicable" : person.team_lead_id ? "Contractor account" : "Direct contractor",
     }); });
     const mapEntry = (entry: NonNullable<typeof entriesQuery.data>[number]) => ({
@@ -104,6 +107,7 @@ export async function GET() {
       } : null,
       providerReadiness: {
         razorpayxConfigured: Boolean(process.env.RAZORPAYX_KEY_ID && process.env.RAZORPAYX_KEY_SECRET && process.env.RAZORPAYX_ACCOUNT_NUMBER),
+        webhookConfigured: Boolean(process.env.RAZORPAYX_WEBHOOK_SECRET && process.env.SUPABASE_SECRET_KEY),
         payoutsLive: process.env.PAYOUTS_LIVE_ENABLED === "true",
       },
       ruleVersions: (ruleVersionsQuery.data ?? []).map((version) => ({

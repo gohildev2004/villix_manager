@@ -8,7 +8,7 @@ import { activePayoutPeriod, displayPayoutDate, type PayoutWeekday, scheduledPay
 type View = "overview" | "inbox" | "people" | "teams" | "payouts" | "reconciliation" | "audit" | "rules" | "settings";
 type Role = "Contributor" | "Team lead" | "Admin";
 type PersonStatus = "Active" | "Paused";
-type Person = { id: string; name: string; handle: string; email: string; role: Role; teamLeadId: string | null; status: PersonStatus; payoutMethod: string; currency: string; payoutReady: boolean; payoutProvider: string | null; providerRecipientId: string | null; bankLast4: string | null };
+type Person = { id: string; name: string; handle: string; email: string; role: Role; teamLeadId: string | null; status: PersonStatus; payoutMethod: string; currency: string; payoutReady: boolean; payoutProvider: string | null; providerContactId: string | null; providerRecipientId: string | null; bankLast4: string | null; ifsc: string | null; legalName: string | null };
 type Entry = { id: string; personId: string | null; receiptId: string; receipt: string; date: string; name: string; handle: string; type: string; gross: number; payoutBps: number | null; ruleVersion: number };
 type Receipt = { id: string; filename: string; date: string; rows: number; total: number; status: "Verified" | "Needs review" | "Approved"; issues: string[] };
 type PaymentStatus = "Ready" | "Processing" | "Paid" | "Failed";
@@ -19,7 +19,8 @@ type RuleVersion = { version: number; status: "draft" | "published" | "archived"
 type ContributionRule = { version: number; type: string; label: string; description: string; recipientPercentage: number; active: boolean };
 type RuleInput = Omit<ContributionRule, "version">;
 type PayoutSnapshot = { id: string; exchangeRate: number; adjustmentBps: number; grossInr: number; retainedInr: number; payableInr: number; provider: string; recipients: Array<{ personId: string; status: string; currency: string; amount: number; provider: string | null }> };
-type ServerState = { people: Person[]; entries: Entry[]; receiptEntries: Entry[]; receipts: Receipt[]; audit: AuditEvent[]; batchStatus: "Draft" | "Approved"; payoutDate: string; payoutDay: PayoutWeekday; paymentStatuses: Record<string, PaymentStatus>; payoutSnapshot: PayoutSnapshot | null; providerReadiness: { razorpayxConfigured: boolean; payoutsLive: boolean }; ruleVersions: RuleVersion[]; rules: ContributionRule[]; actor: { name: string; email: string; role: string }; persistence: string };
+type ProviderReadiness = { razorpayxConfigured: boolean; webhookConfigured: boolean; payoutsLive: boolean };
+type ServerState = { people: Person[]; entries: Entry[]; receiptEntries: Entry[]; receipts: Receipt[]; audit: AuditEvent[]; batchStatus: "Draft" | "Approved"; payoutDate: string; payoutDay: PayoutWeekday; paymentStatuses: Record<string, PaymentStatus>; payoutSnapshot: PayoutSnapshot | null; providerReadiness: ProviderReadiness; ruleVersions: RuleVersion[]; rules: ContributionRule[]; actor: { name: string; email: string; role: string }; persistence: string };
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
@@ -63,7 +64,7 @@ export default function ManagerApp() {
   const [batchStatus, setBatchStatus] = useState<"Draft" | "Approved">("Draft");
   const [paymentStatuses, setPaymentStatuses] = useState<Record<string, PaymentStatus>>({});
   const [payoutSnapshot, setPayoutSnapshot] = useState<PayoutSnapshot | null>(null);
-  const [providerReadiness, setProviderReadiness] = useState({ razorpayxConfigured: false, payoutsLive: false });
+  const [providerReadiness, setProviderReadiness] = useState<ProviderReadiness>({ razorpayxConfigured: false, webhookConfigured: false, payoutsLive: false });
   const [exchangeRate, setExchangeRate] = useState("");
   const [settlementAdjustment, setSettlementAdjustment] = useState("0");
   const [ruleVersions, setRuleVersions] = useState<RuleVersion[]>([]);
@@ -176,6 +177,12 @@ export default function ManagerApp() {
     notify("Person removed from Villix");
   }
 
+  async function connectRazorpayxBank(personId: string, input: { legalName: string; accountNumber: string; ifsc: string }) {
+    await api("/api/payees/razorpayx", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ personId, ...input }) });
+    await refreshState();
+    notify("Indian bank beneficiary connected securely");
+  }
+
   async function resolveReceiptHandle(receiptId: string, handle: string, personId: string) {
     await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: receiptId, action: "resolve_handle", handle, personId }) });
     setReviewReceipt(null); await refreshState(); notify(`${handle} matched and receipt verified`);
@@ -220,6 +227,14 @@ export default function ManagerApp() {
       await api("/api/payouts/dispatch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batchId: payoutSnapshot.id, confirmed: true }) });
       await refreshState(); notify("Payout transfers created securely");
     } catch (error) { notify(error instanceof Error ? error.message : "Payouts could not be sent"); }
+  }
+
+  async function syncPayouts() {
+    if (!payoutSnapshot) return;
+    try {
+      const result = await api<{ synced: number }>("/api/payouts/sync", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batchId: payoutSnapshot.id }) });
+      await refreshState(); notify(`${result.synced} payout status${result.synced === 1 ? "" : "es"} synchronized`);
+    } catch (error) { notify(error instanceof Error ? error.message : "Payout statuses could not be synchronized"); }
   }
 
   async function saveSettings() {
@@ -279,10 +294,10 @@ export default function ManagerApp() {
 
           {view === "overview" && <Overview totals={totals} openIssues={openIssues} receipts={receipts} payoutRows={payoutRows} setView={setView} />}
           {view === "inbox" && <Inbox receipts={receipts} entries={receiptEntries} people={people} approveReceipt={async (id) => { try { await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) }); await refreshState(); notify("Receipt approved"); } catch (error) { notify(error instanceof Error ? error.message : "Receipt could not be approved"); } }} deleteReceipt={deleteReceipt} reviewReceipt={setReviewReceipt} openImport={() => fileRef.current?.click()} />}
-          {view === "people" && <People people={people} entries={entries} query={query} setQuery={setQuery} updatePerson={updatePerson} editPerson={savePersonDetails} removePerson={removePerson} openAdd={() => setPersonModal(true)} />}
+          {view === "people" && <People people={people} entries={entries} query={query} setQuery={setQuery} updatePerson={updatePerson} editPerson={savePersonDetails} connectBank={connectRazorpayxBank} removePerson={removePerson} openAdd={() => setPersonModal(true)} />}
           {view === "teams" && <Teams people={people} entries={entries} updatePerson={updatePerson} />}
           {view === "payouts" && <Payouts totals={totals} rows={payoutRows} payoutDate={payoutDate} payoutDay={payoutDay} status={batchStatus} approve={approveBatch} openIssues={openIssues} snapshot={payoutSnapshot} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} adjustment={settlementAdjustment} setAdjustment={setSettlementAdjustment} />}
-          {view === "reconciliation" && <Reconciliation rows={payoutRows} people={people} batchStatus={batchStatus} statuses={paymentStatuses} readyPayments={readyPayments} snapshot={payoutSnapshot} providerReadiness={providerReadiness} dispatch={dispatchBatch} />}
+          {view === "reconciliation" && <Reconciliation rows={payoutRows} people={people} batchStatus={batchStatus} statuses={paymentStatuses} readyPayments={readyPayments} snapshot={payoutSnapshot} providerReadiness={providerReadiness} dispatch={dispatchBatch} sync={syncPayouts} />}
           {view === "audit" && <Audit events={audit} />}
           {view === "rules" && <Rules versions={ruleVersions} rules={rules} mutate={mutateRules} />}
           {view === "settings" && <Settings saved={settingsSaved} payoutDay={payoutDay} setPayoutDay={(day) => { setPayoutDay(day); setPayoutDate(scheduledPayoutDate(activePayoutPeriod.end, day)); }} save={saveSettings} />}
@@ -372,7 +387,7 @@ function ReceiptDetailModal({ receipt, entries, people, close }: { receipt: Rece
   </section></div>;
 }
 
-function People({ people, entries, query, setQuery, updatePerson, editPerson, removePerson, openAdd }: { people: Person[]; entries: Entry[]; query: string; setQuery: (value: string) => void; updatePerson: (id: string, changes: Partial<Person>) => void; editPerson: (id: string, changes: Partial<Person>) => Promise<void>; removePerson: (id: string) => Promise<void>; openAdd: () => void }) {
+function People({ people, entries, query, setQuery, updatePerson, editPerson, connectBank, removePerson, openAdd }: { people: Person[]; entries: Entry[]; query: string; setQuery: (value: string) => void; updatePerson: (id: string, changes: Partial<Person>) => void; editPerson: (id: string, changes: Partial<Person>) => Promise<void>; connectBank: (id: string, input: { legalName: string; accountNumber: string; ifsc: string }) => Promise<void>; removePerson: (id: string) => Promise<void>; openAdd: () => void }) {
   const [roleFilter, setRoleFilter] = useState<"All" | Role>("All");
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const leads = people.filter((person) => person.role === "Team lead");
@@ -381,11 +396,11 @@ function People({ people, entries, query, setQuery, updatePerson, editPerson, re
   return <div className="stack">
     <div className="command-row"><div className="search-field"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search people" aria-label="Search people" /></div><div className="command-actions"><select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as "All" | Role)}><option>All</option><option>Contributor</option><option>Team lead</option><option>Admin</option></select><button className="button primary" onClick={openAdd}>Add person</button></div></div>
     <section className="surface table-surface"><div className="data-table people-table"><div className="data-head"><span>Person</span><span>Role</span><span>Reports to</span><span>Payment route</span><span>Status</span><span></span></div>{visible.map((person) => <div className="data-row" key={person.id}><button className="identity-cell person-link" onClick={() => setSelectedPersonId(person.id)}><Avatar name={person.name}/><div><b>{person.name}</b><small>{person.handle} · {person.email}</small></div></button><select className="inline-select" value={person.role} onChange={(event) => updatePerson(person.id, { role: event.target.value as Role, teamLeadId: event.target.value === "Contributor" ? person.teamLeadId : null })}><option>Contributor</option><option>Team lead</option><option>Admin</option></select><div>{person.role === "Contributor" ? <select className="inline-select" value={person.teamLeadId || "direct"} onChange={(event) => updatePerson(person.id, { teamLeadId: event.target.value === "direct" ? null : event.target.value })}><option value="direct">No team lead</option>{leads.map((lead) => <option value={lead.id} key={lead.id}>{lead.name}</option>)}</select> : <span className="muted">—</span>}</div><span>{person.role === "Contributor" && person.teamLeadId ? "Via team lead" : person.payoutMethod}</span><Status value={person.status}/><div className="row-actions"><button className="profile-button" onClick={() => setSelectedPersonId(person.id)}>Profile</button><button onClick={() => updatePerson(person.id, { status: person.status === "Active" ? "Paused" : "Active" })}>{person.status === "Active" ? "Pause" : "Activate"}</button></div></div>)}</div>{!visible.length && <Empty title="No matching people" detail="Clear the search or add a new person." />}</section>
-    {selectedPerson && <PersonProfileModal person={selectedPerson} people={people} entries={entries} close={() => setSelectedPersonId(null)} edit={(changes) => editPerson(selectedPerson.id, changes)} remove={async () => { await removePerson(selectedPerson.id); setSelectedPersonId(null); }} />}
+    {selectedPerson && <PersonProfileModal person={selectedPerson} people={people} entries={entries} close={() => setSelectedPersonId(null)} edit={(changes) => editPerson(selectedPerson.id, changes)} connectBank={(input) => connectBank(selectedPerson.id, input)} remove={async () => { await removePerson(selectedPerson.id); setSelectedPersonId(null); }} />}
   </div>;
 }
 
-function PersonProfileModal({ person, people, entries, close, edit, remove }: { person: Person; people: Person[]; entries: Entry[]; close: () => void; edit: (changes: Partial<Person>) => Promise<void>; remove: () => Promise<void> }) {
+function PersonProfileModal({ person, people, entries, close, edit, connectBank, remove }: { person: Person; people: Person[]; entries: Entry[]; close: () => void; edit: (changes: Partial<Person>) => Promise<void>; connectBank: (input: { legalName: string; accountNumber: string; ifsc: string }) => Promise<void>; remove: () => Promise<void> }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState("");
@@ -393,6 +408,8 @@ function PersonProfileModal({ person, people, entries, close, edit, remove }: { 
   const [editRole, setEditRole] = useState<Role>(person.role);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState("");
+  const [bankSaving, setBankSaving] = useState(false);
+  const [bankError, setBankError] = useState("");
   const ownEntries = entries.filter((entry) => entry.personId === person.id || (!entry.personId && entry.handle.toLowerCase() === person.handle.toLowerCase()));
   const members = people.filter((candidate) => candidate.teamLeadId === person.id);
   const memberIds = new Set(members.map((member) => member.id));
@@ -411,6 +428,7 @@ function PersonProfileModal({ person, people, entries, close, edit, remove }: { 
   }, new Map<string, { count: number; gross: number; payable: number }>()).entries());
   const recent = [...ownEntries].reverse().slice(0, 6);
   const earnedLabel = person.role === "Team lead" ? "Total routed" : person.teamLeadId ? "Payable generated" : "Total earned";
+  const canReceiveDirectly = person.role === "Team lead" || (person.role === "Contributor" && !person.teamLeadId);
 
   async function confirmDeletion() {
     if (!confirmRemove) { setConfirmRemove(true); setRemoveError(""); return; }
@@ -433,13 +451,26 @@ function PersonProfileModal({ person, people, entries, close, edit, remove }: { 
         teamLeadId: editRole === "Contributor" && data.get("teamLeadId") !== "direct" ? String(data.get("teamLeadId")) : null,
         status: String(data.get("status")) as PersonStatus,
         currency: "INR",
-        payoutProvider: String(data.get("payoutProvider") ?? "").trim() || null,
-        providerRecipientId: String(data.get("providerRecipientId") ?? "").trim() || null,
-        payoutReady: data.get("payoutReady") === "on",
       });
       setEditing(false);
     } catch (error) { setEditError(error instanceof Error ? error.message : "Person details could not be updated."); }
     finally { setSaving(false); }
+  }
+
+  async function saveBank(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    setBankSaving(true); setBankError("");
+    try {
+      await connectBank({
+        legalName: String(data.get("legalName") ?? "").trim(),
+        accountNumber: String(data.get("accountNumber") ?? "").trim(),
+        ifsc: String(data.get("ifsc") ?? "").trim(),
+      });
+      form.reset();
+    } catch (error) { setBankError(error instanceof Error ? error.message : "The bank beneficiary could not be created."); }
+    finally { setBankSaving(false); }
   }
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
@@ -449,10 +480,14 @@ function PersonProfileModal({ person, people, entries, close, edit, remove }: { 
         <div className="profile-route"><Status value={person.status}/><Status value={person.payoutReady ? "Payout ready" : "Setup needed"}/><span>{person.currency} · {lead ? `Payouts route to ${lead.name}` : person.role === "Team lead" ? `${members.length} team member${members.length === 1 ? "" : "s"} route here` : person.payoutMethod === "direct" ? "Paid directly" : "No payout route"}</span></div>
         {editing && <form className="edit-person-form" onSubmit={(event) => void saveEdits(event)}>
           <div className="edit-person-heading"><div><h3>Edit person details</h3><p>Identity changes are audited. Previous submissions remain linked by permanent person ID.</p></div><span>Admin only</span></div>
-          <div className="modal-grid"><label>Full name<input name="name" required defaultValue={person.name} /></label><label>Receipt handle<input name="handle" required defaultValue={person.handle} /></label><label className="wide">Email address<input name="email" type="email" required defaultValue={person.email} /></label><label>Role<select value={editRole} onChange={(event) => setEditRole(event.target.value as Role)}><option>Contributor</option><option>Team lead</option><option>Admin</option></select></label><label>Status<select name="status" defaultValue={person.status}><option>Active</option><option>Paused</option></select></label><label>Currency<input value="INR" disabled /></label><label>Payout provider<input value="RazorpayX" disabled /></label><label className="wide">RazorpayX fund account ID<input name="providerRecipientId" defaultValue={person.providerRecipientId ?? ""} placeholder="fa_… for the verified Indian bank account" /></label><label className="toggle-label wide">Indian bank account verified<input name="payoutReady" type="checkbox" defaultChecked={person.payoutReady}/><span className={`toggle ${person.payoutReady ? "on" : ""}`}><i/></span></label>{editRole === "Contributor" && <label className="wide">Payment route<select name="teamLeadId" defaultValue={person.teamLeadId ?? "direct"}><option value="direct">No team lead · Direct contractor</option>{people.filter((candidate) => candidate.role === "Team lead" && candidate.id !== person.id).map((candidate) => <option value={candidate.id} key={candidate.id}>Via {candidate.name}</option>)}</select></label>}</div>
+          <div className="modal-grid"><label>Full name<input name="name" required defaultValue={person.name} /></label><label>Receipt handle<input name="handle" required defaultValue={person.handle} /></label><label className="wide">Email address<input name="email" type="email" required defaultValue={person.email} /></label><label>Role<select value={editRole} onChange={(event) => setEditRole(event.target.value as Role)}><option>Contributor</option><option>Team lead</option><option>Admin</option></select></label><label>Status<select name="status" defaultValue={person.status}><option>Active</option><option>Paused</option></select></label><label>Currency<input value="INR" disabled /></label><label>Payout provider<input value="RazorpayX · managed securely" disabled /></label>{editRole === "Contributor" && <label className="wide">Payment route<select name="teamLeadId" defaultValue={person.teamLeadId ?? "direct"}><option value="direct">No team lead · Direct contractor</option>{people.filter((candidate) => candidate.role === "Team lead" && candidate.id !== person.id).map((candidate) => <option value={candidate.id} key={candidate.id}>Via {candidate.name}</option>)}</select></label>}</div>
           {editError && <div className="review-error">{editError}</div>}
           <footer><button type="button" className="button secondary" onClick={() => { setEditing(false); setEditError(""); }}>Cancel</button><button type="submit" className="button primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button></footer>
         </form>}
+        {canReceiveDirectly && <section className="edit-person-form payout-account-card">
+          <div className="edit-person-heading"><div><h3>Indian bank beneficiary</h3><p>{person.payoutReady ? `Connected account ending ${person.bankLast4 ?? "••••"}${person.ifsc ? ` · ${person.ifsc}` : ""}.` : "Bank details are sent directly to RazorpayX. Villix stores only the provider IDs, IFSC, and last four digits."}</p></div><Status value={person.payoutReady ? "Payout ready" : "Setup needed"}/></div>
+          {!person.payoutReady && <form onSubmit={(event) => void saveBank(event)} autoComplete="off"><div className="modal-grid"><label className="wide">Name on bank account<input name="legalName" required minLength={2} maxLength={120} defaultValue={person.legalName ?? person.name} autoComplete="off" /></label><label>Account number<input name="accountNumber" required inputMode="numeric" pattern="[0-9]{6,34}" autoComplete="off" placeholder="Indian bank account" /></label><label>IFSC code<input name="ifsc" required pattern="[A-Za-z]{4}0[A-Za-z0-9]{6}" maxLength={11} autoCapitalize="characters" autoComplete="off" placeholder="ABCD0123456" /></label></div>{bankError && <div className="review-error">{bankError}</div>}<footer><button type="submit" className="button primary" disabled={bankSaving}>{bankSaving ? "Connecting securely…" : "Create RazorpayX beneficiary"}</button></footer></form>}
+        </section>}
         <section className="profile-metrics">
           <div><span>Submissions</span><strong>{ownEntries.length}</strong><small>Verified entries</small></div>
           <div><span>Gross contributed</span><strong>{money.format(ownGross)}</strong><small>Across {receiptCount} receipt{receiptCount === 1 ? "" : "s"}</small></div>
@@ -522,16 +557,16 @@ function Payouts({ totals, rows, payoutDate, payoutDay, status, approve, openIss
   </div>;
 }
 
-function Reconciliation({ rows, people, batchStatus, statuses, readyPayments, snapshot, providerReadiness, dispatch }: { rows: PayoutRow[]; people: Person[]; batchStatus: "Draft" | "Approved"; statuses: Record<string, PaymentStatus>; readyPayments: number; snapshot: PayoutSnapshot | null; providerReadiness: { razorpayxConfigured: boolean; payoutsLive: boolean }; dispatch: () => Promise<void> }) {
+function Reconciliation({ rows, people, batchStatus, statuses, readyPayments, snapshot, providerReadiness, dispatch, sync }: { rows: PayoutRow[]; people: Person[]; batchStatus: "Draft" | "Approved"; statuses: Record<string, PaymentStatus>; readyPayments: number; snapshot: PayoutSnapshot | null; providerReadiness: ProviderReadiness; dispatch: () => Promise<void>; sync: () => Promise<void> }) {
   const paidRecipients = snapshot?.recipients.filter((recipient) => statuses[recipient.personId] === "Paid") ?? [];
   const paidInr = paidRecipients.reduce((sum, recipient) => sum + recipient.amount, 0);
   const peopleReady = rows.every((row) => people.find((person) => person.id === row.key)?.payoutReady);
   const hasProcessing = Object.values(statuses).some((status) => status === "Processing");
-  const providersReady = providerReadiness.razorpayxConfigured;
+  const providersReady = providerReadiness.razorpayxConfigured && providerReadiness.webhookConfigured;
   const canSend = providerReadiness.payoutsLive && batchStatus === "Approved" && Boolean(snapshot) && peopleReady && providersReady && Object.values(statuses).every((value) => value === "Ready");
   return <div className="stack"><section className="recon-summary"><Stat label="Expected settlement" value={snapshot ? inr.format(snapshot.payableInr) : "Not approved"} note={`${readyPayments} payment recipients`} /><Stat label="Confirmed INR paid" value={inr.format(paidInr)} note={`${paidRecipients.length} completed`} /><Stat label="RazorpayX" value={providersReady ? "Ready" : "Setup needed"} note={providerReadiness.payoutsLive ? "Live Indian bank payouts" : "Test mode · Indian bank payouts only · transfers locked"} /></section>
-    {!canSend && <div className="alert warning-alert"><span>i</span><div><b>{!providerReadiness.payoutsLive ? "Payouts are locked in test mode" : batchStatus === "Draft" ? "Approve and lock this payout first" : hasProcessing ? "Transfers are processing" : !peopleReady ? "Recipient Indian bank accounts are incomplete" : "RazorpayX setup is incomplete"}</b><p>{!providerReadiness.payoutsLive ? "You can import receipts, review calculations, and approve test batches, but no bank transfer can be created." : hasProcessing ? "Do not resend this batch. Final provider confirmation will update each recipient status." : "Add RazorpayX server credentials and a ready fund account ID for every recipient."}</p></div></div>}
-    <section className="surface table-surface"><div className="section-header"><div><h2>Payment ledger</h2><p>One action creates one idempotent RazorpayX INR transfer per recipient.</p></div><button className="button primary" disabled={!canSend} onClick={() => void dispatch()}>Send all payouts</button></div><div className="data-table recon-table"><div className="data-head"><span>Recipient</span><span>INR instruction</span><span>Provider</span><span>Status</span><span>Readiness</span></div>{rows.map((row) => { const person = people.find((candidate) => candidate.id === row.key); const recipient = snapshot?.recipients.find((item) => item.personId === row.key); const status = statuses[row.key] || "Ready"; return <div className="data-row" key={row.key}><div className="identity-cell"><Avatar name={row.name}/><div><b>{row.name}</b><small>{row.route}</small></div></div><strong>{recipient ? inr.format(recipient.amount) : money.format(row.payout)}</strong><span>RazorpayX</span><Status value={status}/><Status value={person?.payoutReady ? "Ready" : "Setup needed"}/></div>; })}</div></section></div>;
+    {!canSend && <div className="alert warning-alert"><span>i</span><div><b>{!providerReadiness.payoutsLive ? "Payouts are locked in test mode" : batchStatus === "Draft" ? "Approve and lock this payout first" : hasProcessing ? "Transfers are processing" : !peopleReady ? "Recipient Indian bank accounts are incomplete" : "RazorpayX setup is incomplete"}</b><p>{!providerReadiness.payoutsLive ? "You can import receipts, review calculations, configure test beneficiaries, and approve test batches, but no bank transfer can be created." : hasProcessing ? "Do not resend this batch. Webhooks update final status; manual sync is available as a fallback." : !providerReadiness.webhookConfigured ? "Add the signed RazorpayX webhook and Supabase server secret before enabling payouts." : "Connect each final recipient through the secure bank-beneficiary form."}</p></div></div>}
+    <section className="surface table-surface"><div className="section-header"><div><h2>Payment ledger</h2><p>One action creates one idempotent RazorpayX INR transfer per recipient.</p></div><div className="command-actions"><button className="button secondary" disabled={!snapshot || !providerReadiness.razorpayxConfigured} onClick={() => void sync()}>Sync statuses</button><button className="button primary" disabled={!canSend} onClick={() => void dispatch()}>Send all payouts</button></div></div><div className="data-table recon-table"><div className="data-head"><span>Recipient</span><span>INR instruction</span><span>Provider</span><span>Status</span><span>Readiness</span></div>{rows.map((row) => { const person = people.find((candidate) => candidate.id === row.key); const recipient = snapshot?.recipients.find((item) => item.personId === row.key); const status = statuses[row.key] || "Ready"; return <div className="data-row" key={row.key}><div className="identity-cell"><Avatar name={row.name}/><div><b>{row.name}</b><small>{row.route}</small></div></div><strong>{recipient ? inr.format(recipient.amount) : money.format(row.payout)}</strong><span>RazorpayX</span><Status value={status}/><Status value={person?.payoutReady ? "Ready" : "Setup needed"}/></div>; })}</div></section></div>;
 }
 
 function Audit({ events }: { events: AuditEvent[] }) { return <div className="audit-layout"><section className="surface audit-list"><div className="section-header"><div><h2>Activity</h2><p>Financial history cannot be edited or deleted.</p></div><button className="button secondary">Export log</button></div>{events.map((event) => <div className="audit-event" key={event.id}><span className={`event-dot ${event.tone}`}/><div><b>{event.title}</b><p>{event.detail}</p><small>{event.actor} · {event.time}</small></div></div>)}</section><aside className="surface audit-aside"><h3>Audit integrity</h3><div className="integrity-score">100<span>%</span></div><p>All financial and hierarchy changes are attributed and timestamped.</p><ul><li>Append-only events</li><li>Rule version snapshots</li><li>Recipient routing snapshots</li><li>Approval attribution</li></ul></aside></div>; }
@@ -694,7 +729,7 @@ function PersonModal({ leads, close, add }: { leads: Person[]; close: () => void
   const [role, setRole] = useState<Role>("Contributor");
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const data = new FormData(event.currentTarget); const handle = String(data.get("handle") || "").trim();
-    add({ id: crypto.randomUUID(), name: String(data.get("name") || "").trim(), handle: handle.startsWith("@") ? handle : `@${handle}`, email: String(data.get("email") || "").trim(), role, teamLeadId: role === "Contributor" && data.get("teamLead") !== "direct" ? String(data.get("teamLead")) : null, status: "Active", payoutMethod: role === "Contributor" ? "Contractor account" : role === "Team lead" ? "Team payout account" : "Not applicable", currency: "INR", payoutReady: false, payoutProvider: null, providerRecipientId: null, bankLast4: null });
+    add({ id: crypto.randomUUID(), name: String(data.get("name") || "").trim(), handle: handle.startsWith("@") ? handle : `@${handle}`, email: String(data.get("email") || "").trim(), role, teamLeadId: role === "Contributor" && data.get("teamLead") !== "direct" ? String(data.get("teamLead")) : null, status: "Active", payoutMethod: role === "Contributor" ? "Contractor account" : role === "Team lead" ? "Team payout account" : "Not applicable", currency: "INR", payoutReady: false, payoutProvider: null, providerContactId: null, providerRecipientId: null, bankLast4: null, ifsc: null, legalName: String(data.get("name") || "").trim() });
   }
       return <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="add-person-title"><header><div><span>Directory</span><h2 id="add-person-title">Add person</h2></div><button onClick={close} aria-label="Close">×</button></header><form onSubmit={submit}><div className="modal-grid"><label>Full name<input name="name" required placeholder="Jordan Lee" /></label><label>Receipt handle<input name="handle" required placeholder="@jordan" /></label><label className="wide">Email address<input type="email" name="email" required placeholder="jordan@villix.co" /></label><label>Role<select value={role} onChange={(event) => setRole(event.target.value as Role)}><option>Contributor</option><option>Team lead</option><option>Admin</option></select></label><label>Currency<input value="INR" disabled /></label>{role === "Contributor" && <label>Team lead<select name="teamLead" defaultValue="direct"><option value="direct">No team lead · Direct</option>{leads.map((lead) => <option value={lead.id} key={lead.id}>{lead.name}</option>)}</select></label>}</div><div className="modal-note"><span>i</span>Villix pays only verified Indian bank accounts in INR through RazorpayX.</div><footer><button type="button" className="button secondary" onClick={close}>Cancel</button><button className="button primary" type="submit">Add person</button></footer></form></section></div>;
 }

@@ -147,3 +147,41 @@ test("locks INR payout snapshots and guards provider dispatch", async () => {
   assert.match(migration, /payout_fx_rate/);
   assert.match(migration, /total_payable_settlement_cents/);
 });
+
+test("prepares secure RazorpayX beneficiary onboarding and payout reconciliation", async () => {
+  const [managerApp, payeeRoute, webhookRoute, syncRoute, provider, reconciliation, migration, renderConfig] = await Promise.all([
+    readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/payees/razorpayx/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/webhooks/razorpayx/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/payouts/sync/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/razorpayx.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/razorpayx-reconciliation.ts", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260901100000_razorpayx_reconciliation.sql", import.meta.url), "utf8"),
+    readFile(new URL("../render.yaml", import.meta.url), "utf8"),
+  ]);
+  assert.match(managerApp, /Create RazorpayX beneficiary/);
+  assert.match(managerApp, /Villix stores only the provider IDs, IFSC, and last four digits/);
+  assert.doesNotMatch(managerApp, /RazorpayX fund account ID<input/);
+  assert.match(managerApp, /Sync statuses/);
+  assert.match(payeeRoute, /createRazorpayxContact/);
+  assert.match(payeeRoute, /createRazorpayxFundAccount/);
+  assert.match(payeeRoute, /bank_last4: bankLast4/);
+  assert.doesNotMatch(payeeRoute, /account_number:\s*accountNumber/);
+  assert.match(webhookRoute, /request\.text\(\)/);
+  assert.match(webhookRoute, /x-razorpay-signature/);
+  assert.match(webhookRoute, /x-razorpay-event-id/);
+  assert.match(webhookRoute, /insertError\?\.code === "23505"/);
+  assert.match(webhookRoute, /payloadSha256/);
+  assert.match(syncRoute, /fetchRazorpayxPayout/);
+  assert.match(syncRoute, /reconcileRazorpayxPayout/);
+  assert.match(provider, /timingSafeEqual/);
+  assert.match(provider, /RAZORPAYX_WEBHOOK_PREVIOUS_SECRET/);
+  assert.match(reconciliation, /provider_status_details/);
+  assert.match(reconciliation, /status === "paid"/);
+  assert.match(migration, /provider_webhook_events/);
+  assert.match(migration, /enable row level security/i);
+  assert.match(migration, /revoke insert, update, delete/);
+  assert.doesNotMatch(migration, /raw_payload/);
+  assert.match(renderConfig, /SUPABASE_SECRET_KEY/);
+  assert.match(renderConfig, /RAZORPAYX_WEBHOOK_SECRET/);
+});

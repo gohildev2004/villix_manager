@@ -1,5 +1,6 @@
 import { addAudit, errorResponse, requireAdmin } from "@/lib/villix-server";
-import { createRazorpayxPayout, razorpayxConfigured } from "@/lib/razorpayx";
+import { createRazorpayxPayout, mapRazorpayxPayoutStatus, razorpayxConfigured } from "@/lib/razorpayx";
+import type { Json } from "@/lib/supabase/database.types";
 
 function indiaDate() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -54,11 +55,15 @@ export async function POST(request: Request) {
       if (attemptError) throw attemptError;
       await supabase.from("payout_recipients").update({ status: "processing" }).eq("id", recipient.id);
       const payout = await createRazorpayxPayout({ fundAccountId: profile.provider_recipient_id!, amountPaise: recipient.payout_amount_minor, idempotencyKey, referenceId: `${batch.id.slice(0, 8)}-${recipient.id.slice(0, 8)}`, recipientName: nameByPerson.get(recipient.person_id) ?? "Villix recipient" });
-      const terminalPaid = payout.status === "processed";
-      const terminalFailed = payout.status === "failed" || payout.status === "reversed";
-      const status = terminalPaid ? "paid" : terminalFailed ? "failed" : "processing";
-      await supabase.from("payment_attempts").update({ status, provider_reference: payout.id, failure_reason: payout.failure_reason ?? null }).eq("idempotency_key", idempotencyKey);
-      await supabase.from("payout_recipients").update({ status, provider_reference: payout.id, paid_at: terminalPaid ? new Date().toISOString() : null }).eq("id", recipient.id);
+      const status = mapRazorpayxPayoutStatus(payout.status);
+      await supabase.from("payment_attempts").update({
+        status,
+        provider_reference: payout.id,
+        provider_status: payout.status,
+        provider_status_details: { status: payout.status, status_details: (payout.status_details ?? null) as Json },
+        failure_reason: payout.failure_reason ?? null,
+      }).eq("idempotency_key", idempotencyKey);
+      await supabase.from("payout_recipients").update({ status, provider_reference: payout.id, paid_at: status === "paid" ? new Date().toISOString() : null }).eq("id", recipient.id);
       results.push({ personId: recipient.person_id, status, reference: payout.id });
     }
     const allPaid = results.every((result) => result.status === "paid");

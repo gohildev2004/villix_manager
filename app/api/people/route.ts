@@ -80,16 +80,8 @@ export async function PATCH(request: Request) {
     const payoutMethod = role === "team_lead" ? "team" : role === "admin" ? "none" : teamLeadId ? "contractor" : "direct";
     const { error: updateError } = await supabase.from("people").update({ display_name: name, email, handle, role, team_lead_id: teamLeadId, status, payout_method: payoutMethod, currency }).eq("id", id);
     if (updateError) throw updateError;
-    if (body.providerRecipientId !== undefined || body.payoutProvider !== undefined || body.payoutReady !== undefined) {
-      const providerRecipientId = String(body.providerRecipientId ?? "").trim() || null;
-      const payoutProvider = "razorpayx";
-      const onboardingStatus = body.payoutReady === true && providerRecipientId ? "ready" : providerRecipientId ? "pending" : "not_started";
-      const { error: profileError } = await supabase.from("payee_profiles").update({ currency, provider_recipient_id: providerRecipientId, payout_provider: payoutProvider, onboarding_status: onboardingStatus }).eq("person_id", id);
-      if (profileError) throw profileError;
-    } else {
-      const { error: profileError } = await supabase.from("payee_profiles").update({ currency }).eq("person_id", id);
-      if (profileError) throw profileError;
-    }
+    const { error: profileError } = await supabase.from("payee_profiles").update({ currency }).eq("person_id", id);
+    if (profileError) throw profileError;
     const assignmentChanged = role !== current.role || teamLeadId !== current.team_lead_id;
     if (current.role === "contributor" && assignmentChanged) {
       const today = new Date().toISOString().slice(0, 10);

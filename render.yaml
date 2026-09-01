@@ -13,11 +13,17 @@ services:
         value: https://mohhdiirylnaccilrydn.supabase.co
       - key: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
         sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
       - key: RAZORPAYX_KEY_ID
         sync: false
       - key: RAZORPAYX_KEY_SECRET
         sync: false
       - key: RAZORPAYX_ACCOUNT_NUMBER
+        sync: false
+      - key: RAZORPAYX_WEBHOOK_SECRET
+        sync: false
+      - key: RAZORPAYX_WEBHOOK_PREVIOUS_SECRET
         sync: false
       - key: RAZORPAYX_PAYOUT_MODE
         value: NEFT
