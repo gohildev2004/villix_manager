@@ -909,7 +909,16 @@ h1 { font-size: clamp(36px, 3.3vw, 48px); font-weight: 650; letter-spacing: -.04
 .health-check p { color: var(--muted); font-size: 13px; line-height: 1.45; margin: 5px 0 0; }
 .health-footer { border-top: 1px solid var(--line); color: var(--muted); display: flex; flex-wrap: wrap; font-size: 12px; gap: 10px 24px; margin-top: 20px; padding-top: 16px; }
 .health-footer b { color: var(--ink); font-weight: 600; text-transform: capitalize; }
+.system-health-alert { align-items: center; border: 1px solid; border-radius: 18px; display: flex; gap: 14px; padding: 17px 19px; }
+.system-health-alert.warning { background: #fff9ec; border-color: #f3dfad; color: #805714; }
+.system-health-alert.error { background: #fff1ef; border-color: #f1cbc6; color: #9c3029; }
+.health-alert-icon { align-items: center; background: currentColor; border-radius: 50%; color: #fff; display: flex; flex: 0 0 auto; font-size: 12px; font-weight: 800; height: 28px; justify-content: center; width: 28px; }
+.system-health-alert b { color: currentColor; display: block; font-size: 14px; }
+.system-health-alert p { color: currentColor; font-size: 13px; margin: 3px 0 0; opacity: .82; }
+.system-health-alert button { background: #fff; border: 1px solid rgba(0,0,0,.1); border-radius: 11px; color: var(--ink); cursor: pointer; flex: 0 0 auto; font-size: 12px; font-weight: 650; padding: 10px 13px; }
+.system-health-alert button:hover { background: rgba(255,255,255,.72); }
 @media (max-width: 900px) { .health-grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .system-health-alert { align-items: flex-start; flex-wrap: wrap; } .system-health-alert button { margin-left: 42px; } }
 
 /* Recipient-only portal. It intentionally does not reuse the administrator shell. */
 .payee-login-page, .payee-page { min-height: 100vh; color: #1d1d1f; background: radial-gradient(circle at 80% 8%,rgba(0,122,255,.09),transparent 29%), linear-gradient(160deg,#fbfcfb 0%,#f3f6f2 100%); }

@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { activePayoutPeriod, displayPayoutDate, type PayoutWeekday, scheduledPayoutDate } from "@/lib/payout-schedule";
 
-type View = "overview" | "inbox" | "people" | "teams" | "payouts" | "reconciliation" | "audit" | "rules" | "settings";
+type View = "overview" | "inbox" | "people" | "teams" | "payouts" | "reconciliation" | "audit" | "rules" | "health" | "settings";
 type Role = "Contributor" | "Team lead" | "Admin";
 type PersonStatus = "Active" | "Paused";
 type PortalStatus = "Not invited" | "Invited" | "Active" | "Suspended";
@@ -34,6 +34,7 @@ const initialEntries: Entry[] = [];
 const initialReceipts: Receipt[] = [];
 const initialAudit: AuditEvent[] = [];
 const initialHealth: OperationalHealth = { status: "warning", environment: "loading", checkedAt: "", checks: [], counts: { receiptsNeedingReview: 0, stuckPayouts: 0, failedTransfers: 0, failedWebhooks: 0 }, lastWebhookAt: null };
+const unavailableHealth: OperationalHealth = { ...initialHealth, status: "error", environment: "unknown", checks: [{ id: "monitoring", label: "Operational monitoring", status: "error", detail: "The private monitoring service could not be reached." }] };
 
 const viewCopy: Record<View, { eyebrow: string; title: string; subtitle: string }> = {
   overview: { eyebrow: "Operations", title: "Good morning.", subtitle: "Everything requiring attention is collected here." },
@@ -44,6 +45,7 @@ const viewCopy: Record<View, { eyebrow: string; title: string; subtitle: string 
   reconciliation: { eyebrow: "Payment operations", title: "Reconciliation", subtitle: "Track what was expected, sent, failed, and confirmed." },
   audit: { eyebrow: "Controls", title: "Audit log", subtitle: "An immutable record of financial and hierarchy changes." },
   rules: { eyebrow: "Calculation policy", title: "Rules", subtitle: "Versioned logic makes every historical payout reproducible." },
+  health: { eyebrow: "Operations", title: "System health", subtitle: "Monitor imports, storage, payouts, and provider events." },
   settings: { eyebrow: "Workspace", title: "Settings", subtitle: "Schedule, currency, approvals, notifications, and security." },
 };
 
@@ -100,7 +102,7 @@ export default function ManagerApp() {
     try {
       const [state, health] = await Promise.all([
         api<ServerState>("/api/state", { cache: "no-store" }),
-        api<OperationalHealth>("/api/monitoring", { cache: "no-store" }).catch(() => initialHealth),
+        api<OperationalHealth>("/api/monitoring", { cache: "no-store" }).catch(() => unavailableHealth),
       ]);
       setPeople(state.people); setEntries(state.entries); setReceiptEntries(state.receiptEntries); setReceipts(state.receipts); setAudit(state.audit);
       setBatchStatus(state.batchStatus); setPayoutDay(state.payoutDay); setPayoutDate(state.payoutDate || scheduledPayoutDate(activePayoutPeriod.end, state.payoutDay)); setPaymentStatuses(state.paymentStatuses);
@@ -285,6 +287,7 @@ export default function ManagerApp() {
     { group: "Control", items: [
       { id: "audit", label: "Audit log", symbol: "≣" },
       { id: "rules", label: "Rules", symbol: "%" },
+      { id: "health", label: "System health", symbol: "◉", count: operationalHealth.checks.filter((check) => check.status !== "healthy").length || undefined },
       { id: "settings", label: "Settings", symbol: "⚙" },
     ] },
   ];
@@ -313,7 +316,7 @@ export default function ManagerApp() {
         </header>
 
         <div className="app-content">
-          <header className="view-header"><div><div className="view-eyebrow">{viewCopy[view].eyebrow}</div><h1>{viewCopy[view].title}</h1><p>{viewCopy[view].subtitle}</p></div>{view !== "settings" && <button className="period-control">Aug 24 – Aug 30 <span>⌄</span></button>}</header>
+          <header className="view-header"><div><div className="view-eyebrow">{viewCopy[view].eyebrow}</div><h1>{viewCopy[view].title}</h1><p>{viewCopy[view].subtitle}</p></div>{view !== "settings" && view !== "health" && <button className="period-control">Aug 24 – Aug 30 <span>⌄</span></button>}</header>
 
           {parsing && <div className="processing-banner"><span className="spinner"/>Reading and verifying your receipt…</div>}
           {parseError && <div className="alert error-alert"><span>!</span><div><b>Receipt not added</b><p>{parseError}</p></div><button onClick={() => setParseError("")}>Dismiss</button></div>}
@@ -326,6 +329,7 @@ export default function ManagerApp() {
           {view === "reconciliation" && <Reconciliation rows={payoutRows} people={people} batchStatus={batchStatus} statuses={paymentStatuses} readyPayments={readyPayments} snapshot={payoutSnapshot} providerReadiness={providerReadiness} dispatch={dispatchBatch} sync={syncPayouts} />}
           {view === "audit" && <Audit events={audit} />}
           {view === "rules" && <Rules versions={ruleVersions} rules={rules} mutate={mutateRules} />}
+          {view === "health" && <SystemHealth monitoring={operationalHealth} />}
           {view === "settings" && <Settings saved={settingsSaved} payoutDay={payoutDay} setPayoutDay={(day) => { setPayoutDay(day); setPayoutDate(scheduledPayoutDate(activePayoutPeriod.end, day)); }} save={saveSettings} />}
         </div>
       </main>
@@ -360,8 +364,18 @@ function Overview({ totals, openIssues, receipts, payoutRows, people, monitoring
       <section className="surface"><div className="section-header"><div><h2>Payout preview</h2><p>Grouped by final payment recipient.</p></div><button className="text-button" onClick={() => setView("payouts")}>View all</button></div><div className="compact-list">{payoutRows.slice(0, 4).map((row) => <div className="recipient-row" key={row.key}><Avatar name={row.name}/><div className="grow"><b>{row.name}</b><span>{row.route} · {row.contributors} contributor{row.contributors === 1 ? "" : "s"}</span></div><strong>{money.format(row.payout)}</strong></div>)}</div></section>
     </div>
     <RecipientOnboarding people={people} invitePortals={invitePortals} openPeople={() => setView("people")} />
-    <SystemHealth monitoring={monitoring} />
+    {monitoring.checks.some((check) => check.status !== "healthy") && <SystemHealthAlert monitoring={monitoring} openHealth={() => setView("health")} />}
   </div>;
+}
+
+function SystemHealthAlert({ monitoring, openHealth }: { monitoring: OperationalHealth; openHealth: () => void }) {
+  const affected = monitoring.checks.filter((check) => check.status !== "healthy");
+  const isError = monitoring.status === "error";
+  return <section className={`system-health-alert ${isError ? "error" : "warning"}`} role="alert">
+    <div className="health-alert-icon">!</div>
+    <div className="grow"><b>{isError ? "System health needs attention" : "System health has warnings"}</b><p>{affected.length ? affected.map((check) => check.label).join(", ") : "Monitoring is still connecting."}</p></div>
+    <button onClick={openHealth}>View system health</button>
+  </section>;
 }
 
 function SystemHealth({ monitoring }: { monitoring: OperationalHealth }) {

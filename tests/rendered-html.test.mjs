@@ -82,6 +82,9 @@ test("ships isolated staging, CI, behavioral rules, and private operational moni
   assert.match(monitoring, /requireAdmin/);
   assert.match(readiness, /workspace_settings/);
   assert.match(managerApp, /System health/);
+  assert.match(managerApp, /view === "health" && <SystemHealth/);
+  assert.match(managerApp, /monitoring\.checks\.some\(\(check\) => check\.status !== "healthy"\)/);
+  assert.match(managerApp, /View system health/);
   assert.match(render, /healthCheckPath: \/api\/health\/ready/);
 });
 
