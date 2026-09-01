@@ -739,6 +739,22 @@ h1 { font-size: clamp(36px, 3.3vw, 48px); font-weight: 650; letter-spacing: -.04
 .automatic-payout-date { min-width: 145px; }
 .automatic-payout-date span, .automatic-payout-date small { display: block; color: var(--tertiary); font-size: 10px; }
 .automatic-payout-date strong { display: block; margin: 5px 0 3px; font-size: 13px; white-space: nowrap; }
+.payout-total small { display: block; margin-top: 5px; color: var(--tertiary); font-size: 10px; text-align: right; }
+.fx-card { padding: 0; overflow: hidden; }
+.fx-card .section-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--line); }
+.fx-lock { padding: 6px 10px; border-radius: 999px; background: #f1f2f4; color: var(--secondary); font-size: 10px; font-weight: 700; }
+.fx-fields { display: grid; grid-template-columns: repeat(auto-fit,minmax(190px,1fr)); gap: 18px; padding: 20px 24px 24px; align-items: end; }
+.fx-fields label { display: grid; gap: 6px; color: var(--ink); font-size: 11px; font-weight: 700; }
+.fx-fields label > span { color: var(--tertiary); font-size: 9px; font-weight: 500; }
+.money-input { height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--line); border-radius: 11px; background: #fafafa; }
+.money-input:focus-within { border-color: #88b9ff; box-shadow: 0 0 0 3px rgba(0,122,255,.1); background: #fff; }
+.money-input input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; font: inherit; font-weight: 600; }
+.money-input b { color: var(--secondary); }
+.fx-preview { min-height: 66px; display: flex; flex-direction: column; justify-content: center; padding: 10px 14px; border-radius: 12px; background: #f2f7ff; }
+.fx-preview span,.fx-preview small { color: #54749b; font-size: 9px; }
+.fx-preview strong { margin: 5px 0 3px; font-size: 14px; }
+.status.setup-needed { background: #fff4df; color: #9b6513; }
+.status.payout-ready { background: #eaf7ee; color: #398552; }
 .settings-fields select:disabled { color: var(--secondary); background: rgba(0,0,0,.025); opacity: 1; }
 
 @media (max-width: 860px) {
@@ -804,6 +820,7 @@ h1 { font-size: clamp(36px, 3.3vw, 48px); font-weight: 650; letter-spacing: -.04
   .stat-strip, .recon-summary { grid-template-columns: 1fr; }
   .stat { min-height: 108px; }
   .settings-fields, .payout-hero { grid-template-columns: 1fr; }
+  .fx-fields { grid-template-columns: 1fr; }
   .approval-block { align-items: stretch; flex-direction: column; }
   .command-row { align-items: stretch; flex-direction: column; }
   .search-field { width: 100%; }

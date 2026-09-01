@@ -32,6 +32,8 @@ npm run dev
 
 Create a **Web Service** from this repository. Render can read `render.yaml`; set `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` when prompted. The Supabase URL is already declared in the blueprint.
 
+For live contractor payouts, configure the server-only `RAZORPAYX_KEY_ID`, `RAZORPAYX_KEY_SECRET`, and `RAZORPAYX_ACCOUNT_NUMBER` values in Render. RazorpayX requires the Render outbound IP to be allowlisted and an idempotency key on every payout request. Keep these values out of all `NEXT_PUBLIC_*` variables. Villix supports verified Indian bank accounts only and records, approves, and sends every payout in INR.
+
 Build and start commands:
 
 ```text

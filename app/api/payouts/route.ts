@@ -9,6 +9,10 @@ type Recipient = {
   contributors: Map<string, { name: string; handle: string; grossCents: number; payableCents: number }>;
 };
 
+function settlementAmount(sourceCents: number, exchangeRate: number, adjustmentBps: number) {
+  return Math.round(sourceCents * exchangeRate * (10000 - adjustmentBps) / 10000);
+}
+
 async function digest(value: string) {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -17,7 +21,7 @@ async function digest(value: string) {
 export async function POST(request: Request) {
   try {
     const { actor, supabase } = await requireAdmin();
-    const body = await request.json() as { action?: string; periodStart?: string; periodEnd?: string };
+    const body = await request.json() as { action?: string; periodStart?: string; periodEnd?: string; exchangeRate?: number; settlementAdjustmentBps?: number };
     if (body.action !== "approve") throw new Error("Unsupported payout action.");
     const periodStart = String(body.periodStart ?? "");
     const periodEnd = String(body.periodEnd ?? "");
@@ -25,6 +29,10 @@ export async function POST(request: Request) {
       throw new Error("A valid weekly payout period is required.");
     }
     if (periodStart > periodEnd) throw new Error("The payout period is invalid.");
+    const exchangeRate = Number(body.exchangeRate);
+    const settlementAdjustmentBps = Number(body.settlementAdjustmentBps ?? 0);
+    if (!Number.isFinite(exchangeRate) || exchangeRate <= 0 || exchangeRate > 1000) throw new Error("Enter the Stripe INR received per $1 USD for this week.");
+    if (!Number.isInteger(settlementAdjustmentBps) || settlementAdjustmentBps < 0 || settlementAdjustmentBps > 2000) throw new Error("The additional adjustment must be between 0% and 20%.");
     const { data: policyRow, error: policyError } = await supabase.from("workspace_settings").select("value").eq("key", "payout_policy").maybeSingle();
     if (policyError) throw policyError;
     const policy = safeJson<Record<string, unknown>>(policyRow?.value, {});
@@ -45,12 +53,12 @@ export async function POST(request: Request) {
 
     const { data: existing, error: existingError } = await supabase
       .from("payout_batches")
-      .select("id,status")
+      .select("id,status,exchange_rate")
       .eq("period_start", periodStart)
       .eq("period_end", periodEnd)
       .maybeSingle();
     if (existingError) throw existingError;
-    if (existing?.status === "approved" || existing?.status === "paid") {
+    if (existing?.status === "paid" || (existing?.status === "approved" && existing.exchange_rate)) {
       return Response.json({ error: "This weekly payout has already been approved." }, { status: 409 });
     }
 
@@ -69,7 +77,7 @@ export async function POST(request: Request) {
 
     const contributorIds = [...new Set((entries ?? []).map((entry) => entry.contributor_id!))];
     const [{ data: people, error: peopleError }, { data: assignments, error: assignmentsError }] = await Promise.all([
-      supabase.from("people").select("id,display_name,team_lead_id").in("id", contributorIds),
+      supabase.from("people").select("id,display_name,team_lead_id,currency").in("id", contributorIds),
       supabase.from("team_assignments").select("contributor_id,team_lead_id,effective_from,effective_to").in("contributor_id", contributorIds).order("effective_from", { ascending: false }),
     ]);
     if (peopleError) throw peopleError;
@@ -114,12 +122,36 @@ export async function POST(request: Request) {
       recipients.set(recipientId, recipient);
     }
 
+    const payableRecipients = [...recipients.values()].filter((recipient) => recipient.payableCents > 0);
+    const recipientSnapshots = payableRecipients.map((recipient) => {
+      const grossSettlementCents = settlementAmount(recipient.grossCents, exchangeRate, settlementAdjustmentBps);
+      const payableSettlementCents = settlementAmount(recipient.payableCents, exchangeRate, settlementAdjustmentBps);
+      return {
+        recipient,
+        grossSettlementCents,
+        payableSettlementCents,
+        retainedSettlementCents: grossSettlementCents - payableSettlementCents,
+        currency: "INR",
+        payoutFxRate: 1,
+        payoutAmountMinor: payableSettlementCents,
+        provider: "razorpayx",
+      };
+    });
+    const totalGrossSettlementCents = settlementAmount(totalGrossCents, exchangeRate, settlementAdjustmentBps);
+    const totalPayableSettlementCents = recipientSnapshots.reduce((sum, snapshot) => sum + snapshot.payableSettlementCents, 0);
+
     const batchId = existing?.id ?? crypto.randomUUID();
-    const calculationHash = await digest(JSON.stringify({ periodStart, periodEnd, ruleVersion, entries: calculationEntries }));
+    const calculationHash = await digest(JSON.stringify({ periodStart, periodEnd, ruleVersion, exchangeRate, settlementAdjustmentBps, entries: calculationEntries, recipients: recipientSnapshots.map(({ recipient, ...snapshot }) => ({ personId: recipient.personId, ...snapshot })) }));
     const batch = {
       payout_date: payoutDate,
       source_currency: "USD",
       settlement_currency: "INR",
+      exchange_rate: exchangeRate,
+      settlement_adjustment_bps: settlementAdjustmentBps,
+      total_gross_settlement_cents: totalGrossSettlementCents,
+      total_retained_settlement_cents: totalGrossSettlementCents - totalPayableSettlementCents,
+      total_payable_settlement_cents: totalPayableSettlementCents,
+      payout_provider: "razorpayx",
       status: "approved" as const,
       total_gross_cents: totalGrossCents,
       total_retained_cents: totalGrossCents - totalPayableCents,
@@ -139,9 +171,8 @@ export async function POST(request: Request) {
       if (insertError) throw insertError;
     }
 
-    const payableRecipients = [...recipients.values()].filter((recipient) => recipient.payableCents > 0);
-    if (payableRecipients.length) {
-      const { error: recipientError } = await supabase.from("payout_recipients").insert(payableRecipients.map((recipient) => ({
+    if (recipientSnapshots.length) {
+      const { error: recipientError } = await supabase.from("payout_recipients").insert(recipientSnapshots.map(({ recipient, ...snapshot }) => ({
         id: crypto.randomUUID(),
         batch_id: batchId,
         person_id: recipient.personId,
@@ -150,14 +181,21 @@ export async function POST(request: Request) {
         gross_cents: recipient.grossCents,
         retained_cents: recipient.grossCents - recipient.payableCents,
         payable_cents: recipient.payableCents,
-        contributor_breakdown: [...recipient.contributors.values()],
+        gross_settlement_cents: snapshot.grossSettlementCents,
+        retained_settlement_cents: snapshot.retainedSettlementCents,
+        payable_settlement_cents: snapshot.payableSettlementCents,
+        payout_currency: snapshot.currency,
+        payout_amount_minor: snapshot.payoutAmountMinor,
+        payout_fx_rate: snapshot.payoutFxRate,
+        payout_provider: snapshot.provider,
+        contributor_breakdown: [...recipient.contributors.values()].map((contributor) => ({ ...contributor, grossSettlementCents: settlementAmount(contributor.grossCents, exchangeRate, settlementAdjustmentBps), payableSettlementCents: settlementAmount(contributor.payableCents, exchangeRate, settlementAdjustmentBps) })),
         status: "ready",
       })));
       if (recipientError) throw recipientError;
     }
 
-    await addAudit(supabase, actor, "payout.approved", "payout_batch", batchId, "Payout batch approved", `$${(totalPayableCents / 100).toFixed(2)} approved for ${payableRecipients.length} recipients on ${payoutDate}.`, "success");
-    return Response.json({ id: batchId, status: "Approved", totalPayable: totalPayableCents / 100 });
+    await addAudit(supabase, actor, "payout.approved", "payout_batch", batchId, "Payout batch approved", `$${(totalPayableCents / 100).toFixed(2)} source / ₹${(totalPayableSettlementCents / 100).toFixed(2)} settlement approved for ${recipientSnapshots.length} recipients on ${payoutDate}.`, "success");
+    return Response.json({ id: batchId, status: "Approved", totalPayable: totalPayableCents / 100, totalPayableInr: totalPayableSettlementCents / 100 });
   } catch (error) {
     return errorResponse(error);
   }

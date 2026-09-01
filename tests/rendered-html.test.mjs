@@ -111,3 +111,28 @@ test("shows receipt breakdowns and enforces the weekly payout schedule", async (
   assert.match(schedule, /scheduledPayoutDate/);
   assert.match(schedule, /label: "Aug 24 – Aug 30"/);
 });
+
+test("locks INR payout snapshots and guards provider dispatch", async () => {
+  const [managerApp, payoutRoute, dispatchRoute, provider, migration] = await Promise.all([
+    readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/payouts/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/payouts/dispatch/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/razorpayx.ts", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260901015829_multi_currency_payout_snapshots.sql", import.meta.url), "utf8"),
+  ]);
+  assert.match(managerApp, /INR settlement/);
+  assert.match(managerApp, /No assumed fee/);
+  assert.match(managerApp, /Every Villix payable and bank transfer remains in INR/);
+  assert.doesNotMatch(managerApp, /Payout currency<select/);
+  assert.match(managerApp, /Indian bank payouts only/);
+  assert.match(payoutRoute, /settlementAdjustmentBps/);
+  assert.match(payoutRoute, /payout_currency/);
+  assert.match(payoutRoute, /payout_amount_minor/);
+  assert.match(payoutRoute, /currency: "INR"/);
+  assert.match(dispatchRoute, /missing a ready RazorpayX fund account/);
+  assert.match(dispatchRoute, /Reconcile them before retrying to prevent duplicate transfers/);
+  assert.match(provider, /X-Payout-Idempotency/);
+  assert.match(provider, /queue_if_low_balance: false/);
+  assert.match(migration, /payout_fx_rate/);
+  assert.match(migration, /total_payable_settlement_cents/);
+});

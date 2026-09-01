@@ -301,6 +301,7 @@ export type Database = {
           attempt_number: number
           attempted_by: string | null
           created_at: string
+          currency: string
           failure_reason: string | null
           id: string
           idempotency_key: string
@@ -314,6 +315,7 @@ export type Database = {
           attempt_number: number
           attempted_by?: string | null
           created_at?: string
+          currency?: string
           failure_reason?: string | null
           id?: string
           idempotency_key: string
@@ -327,6 +329,7 @@ export type Database = {
           attempt_number?: number
           attempted_by?: string | null
           created_at?: string
+          currency?: string
           failure_reason?: string | null
           id?: string
           idempotency_key?: string
@@ -351,51 +354,69 @@ export type Database = {
           approved_by: string | null
           calculation_hash: string | null
           created_at: string
+          exchange_rate: number | null
           id: string
           payout_date: string | null
+          payout_provider: string
           period_end: string
           period_start: string
           rule_version: number
+          settlement_adjustment_bps: number
           settlement_currency: string
           source_currency: string
           status: string
           total_gross_cents: number
+          total_gross_settlement_cents: number
           total_payable_cents: number
+          total_payable_settlement_cents: number
           total_retained_cents: number
+          total_retained_settlement_cents: number
         }
         Insert: {
           approved_at?: string | null
           approved_by?: string | null
           calculation_hash?: string | null
           created_at?: string
+          exchange_rate?: number | null
           id?: string
           payout_date?: string | null
+          payout_provider?: string
           period_end: string
           period_start: string
           rule_version?: number
+          settlement_adjustment_bps?: number
           settlement_currency?: string
           source_currency?: string
           status?: string
           total_gross_cents?: number
+          total_gross_settlement_cents?: number
           total_payable_cents?: number
+          total_payable_settlement_cents?: number
           total_retained_cents?: number
+          total_retained_settlement_cents?: number
         }
         Update: {
           approved_at?: string | null
           approved_by?: string | null
           calculation_hash?: string | null
           created_at?: string
+          exchange_rate?: number | null
           id?: string
           payout_date?: string | null
+          payout_provider?: string
           period_end?: string
           period_start?: string
           rule_version?: number
+          settlement_adjustment_bps?: number
           settlement_currency?: string
           source_currency?: string
           status?: string
           total_gross_cents?: number
+          total_gross_settlement_cents?: number
           total_payable_cents?: number
+          total_payable_settlement_cents?: number
           total_retained_cents?: number
+          total_retained_settlement_cents?: number
         }
         Relationships: []
       }
@@ -406,12 +427,19 @@ export type Database = {
           contributor_count: number
           created_at: string
           gross_cents: number
+          gross_settlement_cents: number
           id: string
           paid_at: string | null
           payable_cents: number
+          payable_settlement_cents: number
+          payout_amount_minor: number
+          payout_currency: string
+          payout_fx_rate: number | null
+          payout_provider: string | null
           person_id: string
           provider_reference: string | null
           retained_cents: number
+          retained_settlement_cents: number
           routing_type: string
           status: string
         }
@@ -421,12 +449,19 @@ export type Database = {
           contributor_count?: number
           created_at?: string
           gross_cents: number
+          gross_settlement_cents?: number
           id?: string
           paid_at?: string | null
           payable_cents: number
+          payable_settlement_cents?: number
+          payout_amount_minor?: number
+          payout_currency?: string
+          payout_fx_rate?: number | null
+          payout_provider?: string | null
           person_id: string
           provider_reference?: string | null
           retained_cents: number
+          retained_settlement_cents?: number
           routing_type: string
           status?: string
         }
@@ -436,12 +471,19 @@ export type Database = {
           contributor_count?: number
           created_at?: string
           gross_cents?: number
+          gross_settlement_cents?: number
           id?: string
           paid_at?: string | null
           payable_cents?: number
+          payable_settlement_cents?: number
+          payout_amount_minor?: number
+          payout_currency?: string
+          payout_fx_rate?: number | null
+          payout_provider?: string | null
           person_id?: string
           provider_reference?: string | null
           retained_cents?: number
+          retained_settlement_cents?: number
           routing_type?: string
           status?: string
         }
