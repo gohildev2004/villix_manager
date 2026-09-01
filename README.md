@@ -44,7 +44,7 @@ Keep `PAYOUTS_LIVE_ENABLED=false` throughout incorporation and provider onboardi
 2. Add `SUPABASE_SECRET_KEY` using a Supabase `sb_secret_...` server key. Never expose it as a `NEXT_PUBLIC_*` variable.
 3. In RazorpayX, create a webhook pointing to `https://admin.villix.in/api/webhooks/razorpayx`. Subscribe to payout lifecycle events, create a strong webhook secret, and add it to Render as `RAZORPAYX_WEBHOOK_SECRET`.
 4. Use each final recipient’s profile to create the RazorpayX Contact and Fund Account. Contributors under a team lead do not need their own beneficiary because their payable share routes to the lead.
-5. Allowlist the static outbound IP shown by Render in RazorpayX, fund the test balance, and verify a complete test-mode batch including success, failure, reversal, duplicate-webhook, and manual-sync paths.
+5. Create a separate Render staging service with the same commit, allowlist its static outbound IP, use only RazorpayX test credentials, and set `PAYOUTS_LIVE_ENABLED=true` only on that staging service. Verify a complete test-mode batch including success, failure, reversal, duplicate-webhook, and manual-sync paths. Production stays locked.
 6. Replace the test credentials with live credentials. RazorpayX test Contacts and Fund Accounts are isolated, so recreate beneficiaries in live mode.
 7. Run one controlled low-value live payout and confirm the webhook, payment ledger, audit log, bank credit, and reconciliation all agree.
 8. Only after those checks, change `PAYOUTS_LIVE_ENABLED=true` and redeploy.
