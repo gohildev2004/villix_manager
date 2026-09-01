@@ -1,4 +1,5 @@
-import { addAudit, errorResponse, requireAdmin } from "@/lib/villix-server";
+import { addAudit, errorResponse, requireAdmin, safeJson } from "@/lib/villix-server";
+import { isPayoutWeekday, scheduledPayoutDate } from "@/lib/payout-schedule";
 
 type Recipient = {
   personId: string;
@@ -16,15 +17,19 @@ async function digest(value: string) {
 export async function POST(request: Request) {
   try {
     const { actor, supabase } = await requireAdmin();
-    const body = await request.json() as { action?: string; payoutDate?: string; periodStart?: string; periodEnd?: string };
+    const body = await request.json() as { action?: string; periodStart?: string; periodEnd?: string };
     if (body.action !== "approve") throw new Error("Unsupported payout action.");
     const periodStart = String(body.periodStart ?? "");
     const periodEnd = String(body.periodEnd ?? "");
-    const payoutDate = String(body.payoutDate ?? "");
-    if (![periodStart, periodEnd, payoutDate].every((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))) {
-      throw new Error("A valid weekly period and payout date are required.");
+    if (![periodStart, periodEnd].every((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))) {
+      throw new Error("A valid weekly payout period is required.");
     }
     if (periodStart > periodEnd) throw new Error("The payout period is invalid.");
+    const { data: policyRow, error: policyError } = await supabase.from("workspace_settings").select("value").eq("key", "payout_policy").maybeSingle();
+    if (policyError) throw policyError;
+    const policy = safeJson<Record<string, unknown>>(policyRow?.value, {});
+    const payoutDay = isPayoutWeekday(policy.payoutDay) ? policy.payoutDay : "Monday";
+    const payoutDate = scheduledPayoutDate(periodEnd, payoutDay);
 
     const { data: receipts, error: receiptsError } = await supabase
       .from("receipts")

@@ -3,12 +3,13 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { activePayoutPeriod, displayPayoutDate, type PayoutWeekday, scheduledPayoutDate } from "@/lib/payout-schedule";
 
 type View = "overview" | "inbox" | "people" | "teams" | "payouts" | "reconciliation" | "audit" | "rules" | "settings";
 type Role = "Contributor" | "Team lead" | "Admin";
 type PersonStatus = "Active" | "Paused";
 type Person = { id: string; name: string; handle: string; email: string; role: Role; teamLeadId: string | null; status: PersonStatus; payoutMethod: string };
-type Entry = { id: string; personId: string | null; receipt: string; date: string; name: string; handle: string; type: string; gross: number; payoutBps: number | null; ruleVersion: number };
+type Entry = { id: string; personId: string | null; receiptId: string; receipt: string; date: string; name: string; handle: string; type: string; gross: number; payoutBps: number | null; ruleVersion: number };
 type Receipt = { id: string; filename: string; date: string; rows: number; total: number; status: "Verified" | "Needs review" | "Approved"; issues: string[] };
 type PaymentStatus = "Ready" | "Paid" | "Failed";
 type AuditEvent = { id: string; title: string; detail: string; actor: string; time: string; tone: "neutral" | "success" | "warning" };
@@ -17,10 +18,9 @@ type PayoutRow = { key: string; name: string; handle: string; route: string; gro
 type RuleVersion = { version: number; status: "draft" | "published" | "archived"; effectiveFrom: string | null; createdAt: string; publishedAt: string | null };
 type ContributionRule = { version: number; type: string; label: string; description: string; recipientPercentage: number; active: boolean };
 type RuleInput = Omit<ContributionRule, "version">;
-type ServerState = { people: Person[]; entries: Entry[]; receipts: Receipt[]; audit: AuditEvent[]; batchStatus: "Draft" | "Approved"; payoutDate: string; paymentStatuses: Record<string, PaymentStatus>; ruleVersions: RuleVersion[]; rules: ContributionRule[]; actor: { name: string; email: string; role: string }; persistence: string };
+type ServerState = { people: Person[]; entries: Entry[]; receiptEntries: Entry[]; receipts: Receipt[]; audit: AuditEvent[]; batchStatus: "Draft" | "Approved"; payoutDate: string; payoutDay: PayoutWeekday; paymentStatuses: Record<string, PaymentStatus>; ruleVersions: RuleVersion[]; rules: ContributionRule[]; actor: { name: string; email: string; role: string }; persistence: string };
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
-const today = "2026-09-04";
 
 const initialPeople: Person[] = [];
 const initialEntries: Entry[] = [];
@@ -47,6 +47,7 @@ export default function ManagerApp() {
   const [view, setView] = useState<View>("overview");
   const [people, setPeople] = useState<Person[]>(initialPeople);
   const [entries, setEntries] = useState<Entry[]>(initialEntries);
+  const [receiptEntries, setReceiptEntries] = useState<Entry[]>(initialEntries);
   const [receipts, setReceipts] = useState<Receipt[]>(initialReceipts);
   const [audit, setAudit] = useState<AuditEvent[]>(initialAudit);
   const [query, setQuery] = useState("");
@@ -55,7 +56,8 @@ export default function ManagerApp() {
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState("");
   const [toast, setToast] = useState("");
-  const [payoutDate, setPayoutDate] = useState("");
+  const [payoutDay, setPayoutDay] = useState<PayoutWeekday>("Monday");
+  const [payoutDate, setPayoutDate] = useState(scheduledPayoutDate(activePayoutPeriod.end, "Monday"));
   const [batchStatus, setBatchStatus] = useState<"Draft" | "Approved">("Draft");
   const [paymentStatuses, setPaymentStatuses] = useState<Record<string, PaymentStatus>>({});
   const [ruleVersions, setRuleVersions] = useState<RuleVersion[]>([]);
@@ -75,8 +77,8 @@ export default function ManagerApp() {
   async function refreshState() {
     try {
       const state = await api<ServerState>("/api/state", { cache: "no-store" });
-      setPeople(state.people); setEntries(state.entries); setReceipts(state.receipts); setAudit(state.audit);
-      setBatchStatus(state.batchStatus); setPayoutDate(state.payoutDate); setPaymentStatuses(state.paymentStatuses);
+      setPeople(state.people); setEntries(state.entries); setReceiptEntries(state.receiptEntries); setReceipts(state.receipts); setAudit(state.audit);
+      setBatchStatus(state.batchStatus); setPayoutDay(state.payoutDay); setPayoutDate(state.payoutDate || scheduledPayoutDate(activePayoutPeriod.end, state.payoutDay)); setPaymentStatuses(state.paymentStatuses);
       setRuleVersions(state.ruleVersions); setRules(state.rules);
       setActorName(state.actor.name); setServerStatus("online");
     } catch (error) {
@@ -126,7 +128,7 @@ export default function ManagerApp() {
     return [...grouped.values()];
   }, [entries, people]);
 
-  const openIssues = receipts.reduce((sum, receipt) => sum + receipt.issues.length, 0) + (payoutDate ? 0 : 1);
+  const openIssues = receipts.reduce((sum, receipt) => sum + receipt.issues.length, 0);
   const readyPayments = payoutRows.filter((row) => row.route !== "Needs review").length;
 
   function notify(message: string) {
@@ -198,12 +200,19 @@ export default function ManagerApp() {
   }
 
   async function approveBatch() {
-    if (!payoutDate) { notify("Choose a payout date before approval"); return; }
     if (receipts.some((receipt) => receipt.issues.length)) { notify("Resolve receipt issues before approval"); setView("inbox"); return; }
     try {
-      await api("/api/payouts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "approve", payoutDate, periodStart: "2026-08-24", periodEnd: "2026-08-30" }) });
+      await api("/api/payouts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "approve", periodStart: activePayoutPeriod.start, periodEnd: activePayoutPeriod.end }) });
       await refreshState(); notify("Weekly payout approved");
     } catch (error) { notify(error instanceof Error ? error.message : "Payout could not be approved"); }
+  }
+
+  async function saveSettings() {
+    try {
+      await api("/api/settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ payoutDay }) });
+      await refreshState(); setSettingsSaved(true); notify("Workspace settings saved");
+      window.setTimeout(() => setSettingsSaved(false), 2400);
+    } catch (error) { notify(error instanceof Error ? error.message : "Settings could not be saved"); }
   }
 
   const navigation: Array<{ group: string; items: Array<{ id: View; label: string; symbol: string; count?: number }> }> = [
@@ -254,15 +263,15 @@ export default function ManagerApp() {
           {parsing && <div className="processing-banner"><span className="spinner"/>Reading and verifying your receipt…</div>}
           {parseError && <div className="alert error-alert"><span>!</span><div><b>Receipt not added</b><p>{parseError}</p></div><button onClick={() => setParseError("")}>Dismiss</button></div>}
 
-          {view === "overview" && <Overview totals={totals} openIssues={openIssues} receipts={receipts} payoutRows={payoutRows} payoutDate={payoutDate} setView={setView} />}
-          {view === "inbox" && <Inbox receipts={receipts} approveReceipt={async (id) => { try { await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) }); await refreshState(); notify("Receipt approved"); } catch (error) { notify(error instanceof Error ? error.message : "Receipt could not be approved"); } }} deleteReceipt={deleteReceipt} reviewReceipt={setReviewReceipt} openImport={() => fileRef.current?.click()} />}
+          {view === "overview" && <Overview totals={totals} openIssues={openIssues} receipts={receipts} payoutRows={payoutRows} setView={setView} />}
+          {view === "inbox" && <Inbox receipts={receipts} entries={receiptEntries} people={people} approveReceipt={async (id) => { try { await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) }); await refreshState(); notify("Receipt approved"); } catch (error) { notify(error instanceof Error ? error.message : "Receipt could not be approved"); } }} deleteReceipt={deleteReceipt} reviewReceipt={setReviewReceipt} openImport={() => fileRef.current?.click()} />}
           {view === "people" && <People people={people} entries={entries} query={query} setQuery={setQuery} updatePerson={updatePerson} editPerson={savePersonDetails} removePerson={removePerson} openAdd={() => setPersonModal(true)} />}
           {view === "teams" && <Teams people={people} entries={entries} updatePerson={updatePerson} />}
-          {view === "payouts" && <Payouts totals={totals} rows={payoutRows} payoutDate={payoutDate} setPayoutDate={setPayoutDate} status={batchStatus} approve={approveBatch} openIssues={openIssues} />}
+          {view === "payouts" && <Payouts totals={totals} rows={payoutRows} payoutDate={payoutDate} payoutDay={payoutDay} status={batchStatus} approve={approveBatch} openIssues={openIssues} />}
           {view === "reconciliation" && <Reconciliation rows={payoutRows} batchStatus={batchStatus} statuses={paymentStatuses} setStatuses={setPaymentStatuses} notify={notify} addAudit={addAudit} readyPayments={readyPayments} />}
           {view === "audit" && <Audit events={audit} />}
           {view === "rules" && <Rules versions={ruleVersions} rules={rules} mutate={mutateRules} />}
-          {view === "settings" && <Settings saved={settingsSaved} save={() => { setSettingsSaved(true); notify("Workspace settings saved"); addAudit("Workspace settings updated", "Schedule and approval preferences were changed."); window.setTimeout(() => setSettingsSaved(false), 2400); }} />}
+          {view === "settings" && <Settings saved={settingsSaved} payoutDay={payoutDay} setPayoutDay={(day) => { setPayoutDay(day); setPayoutDate(scheduledPayoutDate(activePayoutPeriod.end, day)); }} save={saveSettings} />}
         </div>
       </main>
 
@@ -274,9 +283,8 @@ export default function ManagerApp() {
   );
 }
 
-function Overview({ totals, openIssues, receipts, payoutRows, payoutDate, setView }: { totals: Totals; openIssues: number; receipts: Receipt[]; payoutRows: PayoutRow[]; payoutDate: string; setView: (view: View) => void }) {
+function Overview({ totals, openIssues, receipts, payoutRows, setView }: { totals: Totals; openIssues: number; receipts: Receipt[]; payoutRows: PayoutRow[]; setView: (view: View) => void }) {
   const attention = [
-    { title: "Choose this week’s payout date", detail: "Approval stays locked until a date is confirmed.", action: "Set date", view: "payouts" as View, visible: !payoutDate },
     { title: `${receipts.filter((receipt) => receipt.status === "Verified").length} receipts ready for approval`, detail: "Source totals and contribution rows have been verified.", action: "Review", view: "inbox" as View, visible: receipts.some((receipt) => receipt.status === "Verified") },
     { title: "All contributor handles are matched", detail: "Every imported handle resolves to one active directory record.", action: "View people", view: "people" as View, visible: true },
   ].filter((item) => item.visible);
@@ -302,10 +310,11 @@ function Overview({ totals, openIssues, receipts, payoutRows, payoutDate, setVie
 function Stat({ label, value, note }: { label: string; value: string; note: string }) { return <div className="stat"><span>{label}</span><strong>{value}</strong><small>{note}</small></div>; }
 function Avatar({ name, large = false }: { name: string; large?: boolean }) { return <span className={`person-avatar ${large ? "large" : ""}`}>{initials(name)}</span>; }
 
-function Inbox({ receipts, approveReceipt, deleteReceipt, reviewReceipt, openImport }: { receipts: Receipt[]; approveReceipt: (id: string) => Promise<void>; deleteReceipt: (id: string) => Promise<void>; reviewReceipt: (receipt: Receipt) => void; openImport: () => void }) {
+function Inbox({ receipts, entries, people, approveReceipt, deleteReceipt, reviewReceipt, openImport }: { receipts: Receipt[]; entries: Entry[]; people: Person[]; approveReceipt: (id: string) => Promise<void>; deleteReceipt: (id: string) => Promise<void>; reviewReceipt: (receipt: Receipt) => void; openImport: () => void }) {
   const [filter, setFilter] = useState<"All" | Receipt["status"]>("All");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [detailReceipt, setDetailReceipt] = useState<Receipt | null>(null);
   const visible = receipts.filter((receipt) => filter === "All" || receipt.status === filter);
   async function remove(receipt: Receipt) {
     if (confirmDelete !== receipt.id) { setConfirmDelete(receipt.id); return; }
@@ -315,9 +324,38 @@ function Inbox({ receipts, approveReceipt, deleteReceipt, reviewReceipt, openImp
   }
   return <div className="stack">
     <div className="command-row"><div className="segmented">{(["All", "Needs review", "Verified", "Approved"] as const).map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}</button>)}</div><button className="button primary" onClick={openImport}>Import PDF</button></div>
-    <section className="surface table-surface"><div className="data-table inbox-table"><div className="data-head"><span>Receipt</span><span>Date</span><span>Entries</span><span>Total</span><span>Status</span><span></span></div>{visible.map((receipt) => <div className="data-row" key={receipt.id}><div className="file-cell"><i>PDF</i><div><b>{receipt.filename}</b><small>{receipt.issues.length ? receipt.issues.join(" · ") : "Source total verified"}</small></div></div><span>{receipt.date}</span><span>{receipt.rows}</span><strong>{money.format(receipt.total)}</strong><Status value={receipt.status}/><div className="row-actions">{receipt.status !== "Approved" && <>{receipt.issues.length ? <button className="resolve-button" onClick={() => reviewReceipt(receipt)}>Resolve</button> : <button onClick={() => void approveReceipt(receipt.id)}>Approve</button>}<button className={`delete-receipt-button ${confirmDelete === receipt.id ? "confirm" : ""}`} disabled={deleting === receipt.id} onClick={() => void remove(receipt)}>{deleting === receipt.id ? "Deleting…" : confirmDelete === receipt.id ? "Confirm delete" : "Delete"}</button></>}</div></div>)}</div>{!visible.length && <Empty title="No receipts here" detail="Try a different status or import another PDF." />}</section>
+    <section className="surface table-surface"><div className="data-table inbox-table"><div className="data-head"><span>Receipt</span><span>Date</span><span>Entries</span><span>Total</span><span>Status</span><span></span></div>{visible.map((receipt) => <div className="data-row" key={receipt.id}><button className="file-cell receipt-link" onClick={() => setDetailReceipt(receipt)}><i>PDF</i><div><b>{receipt.filename}</b><small>{receipt.issues.length ? receipt.issues.join(" · ") : "Tap to view full breakdown"}</small></div></button><span>{receipt.date}</span><span>{receipt.rows}</span><strong>{money.format(receipt.total)}</strong><Status value={receipt.status}/><div className="row-actions"><button className="profile-button" onClick={() => setDetailReceipt(receipt)}>View</button>{receipt.status !== "Approved" && <>{receipt.issues.length ? <button className="resolve-button" onClick={() => reviewReceipt(receipt)}>Resolve</button> : <button onClick={() => void approveReceipt(receipt.id)}>Approve</button>}<button className={`delete-receipt-button ${confirmDelete === receipt.id ? "confirm" : ""}`} disabled={deleting === receipt.id} onClick={() => void remove(receipt)}>{deleting === receipt.id ? "Deleting…" : confirmDelete === receipt.id ? "Confirm delete" : "Delete"}</button></>}</div></div>)}</div>{!visible.length && <Empty title="No receipts here" detail="Try a different status or import another PDF." />}</section>
     <div className="safety-note"><span>✓</span><div><b>Duplicate protection is active</b><p>File fingerprints and source totals are checked before a receipt can enter the ledger.</p></div></div>
+    {detailReceipt && <ReceiptDetailModal receipt={detailReceipt} entries={entries} people={people} close={() => setDetailReceipt(null)} />}
   </div>;
+}
+
+function ReceiptDetailModal({ receipt, entries, people, close }: { receipt: Receipt; entries: Entry[]; people: Person[]; close: () => void }) {
+  const items = entries.filter((entry) => entry.receiptId === receipt.id);
+  const gross = items.reduce((sum, entry) => sum + entry.gross, 0);
+  const distribution = items.reduce((sum, entry) => sum + payable(entry), 0);
+  const retained = gross - distribution;
+  return <div className="modal-backdrop"><section className="modal receipt-detail-modal" role="dialog" aria-modal="true" aria-labelledby="receipt-detail-title">
+    <header><div><span>Receipt breakdown</span><h2 id="receipt-detail-title">{receipt.filename}</h2></div><button onClick={close} aria-label="Close">×</button></header>
+    <div className="receipt-detail-body">
+      <div className="receipt-detail-meta"><div><i>PDF</i><div><b>{receipt.date}</b><span>{items.length} extracted entries</span></div></div><Status value={receipt.status}/></div>
+      <div className="receipt-summary-grid"><Stat label="Receipt total" value={money.format(gross || receipt.total)} note="Gross source amount"/><Stat label="Villix keeps" value={money.format(retained)} note="Commission + retained types"/><Stat label="To distribute" value={money.format(distribution)} note="Weekly recipient payout"/><Stat label="Entries" value={String(items.length)} note={`${items.filter((entry) => (entry.payoutBps ?? 0) > 0).length} payout eligible`}/></div>
+      <div className="receipt-entry-scroll"><div className="receipt-entry-table">
+        <div className="receipt-entry-head"><span>Contributor</span><span>Type</span><span>Gross</span><span>Villix keeps</span><span>Payable</span><span>Recipient</span></div>
+        {items.map((entry) => {
+          const contributor = people.find((person) => person.id === entry.personId) ?? people.find((person) => person.handle.toLowerCase() === entry.handle.toLowerCase());
+          const lead = contributor?.teamLeadId ? people.find((person) => person.id === contributor.teamLeadId) : null;
+          const amount = payable(entry);
+          const recipient = amount === 0 ? "Villix" : lead?.name ?? contributor?.name ?? "Needs review";
+          const route = amount === 0 ? "Retained in full" : lead ? "Team payout" : contributor ? "Direct contractor" : "Unmatched contributor";
+          return <div className="receipt-entry-row" key={entry.id}><div><b>{contributor?.name ?? entry.name}</b><small>{entry.handle}</small></div><span className="type-chip">{entry.type}</span><strong>{money.format(entry.gross)}</strong><span>{money.format(entry.gross - amount)}</span><strong className="payable">{money.format(amount)}</strong><div><b>{recipient}</b><small>{route}</small></div></div>;
+        })}
+      </div></div>
+      {!items.length && <Empty title="No extracted entries available" detail="This receipt may still be processing or may need to be imported again."/>}
+      <div className="modal-note"><span>i</span>Only contribution types with a payable rule are distributed. If a contributor reports to a team lead, their full payable share routes to that team lead.</div>
+    </div>
+    <footer><button className="button primary" onClick={close}>Done</button></footer>
+  </section></div>;
 }
 
 function People({ people, entries, query, setQuery, updatePerson, editPerson, removePerson, openAdd }: { people: Person[]; entries: Entry[]; query: string; setQuery: (value: string) => void; updatePerson: (id: string, changes: Partial<Person>) => void; editPerson: (id: string, changes: Partial<Person>) => Promise<void>; removePerson: (id: string) => Promise<void>; openAdd: () => void }) {
@@ -438,10 +476,11 @@ function Teams({ people, entries, updatePerson }: { people: Person[]; entries: E
 
   return <div className="team-grid">{leads.map((lead) => {
     const members = people.filter((person) => person.teamLeadId === lead.id);
+    const memberIds = new Set(members.map((person) => person.id));
     const handles = new Set(members.map((person) => person.handle.toLowerCase()));
-    const payout = entries.filter((entry) => handles.has(entry.handle.toLowerCase())).reduce((sum, entry) => sum + payable(entry), 0);
+    const payout = entries.filter((entry) => entry.personId ? memberIds.has(entry.personId) : handles.has(entry.handle.toLowerCase())).reduce((sum, entry) => sum + payable(entry), 0);
     return <section className={`surface team-card ${selectedGroup === lead.id ? "managing" : ""}`} key={lead.id}><div className="team-owner"><Avatar name={lead.name} large/><div><span>Team lead</span><h2>{lead.name}</h2><p>{lead.handle}</p></div><Status value={lead.status}/></div><div className="team-summary"><div><span>Members</span><strong>{members.length}</strong></div><div><span>Weekly payable</span><strong>{money.format(payout)}</strong></div></div><div className="member-stack">{members.map((member) => <div key={member.id}><Avatar name={member.name}/><span>{member.name}</span><small>{member.handle}</small></div>)}</div><button className="card-button" aria-expanded={selectedGroup === lead.id} onClick={() => openManager(lead.id)}>{selectedGroup === lead.id ? "Close manager" : "Manage team"}</button></section>;
-  })}<section className={`surface team-card direct-card ${selectedGroup === "direct" ? "managing" : ""}`}><div className="team-owner"><span className="direct-symbol">↗</span><div><span>Independent</span><h2>Direct contractors</h2><p>Paid without a team lead</p></div></div><div className="team-summary"><div><span>Contributors</span><strong>{directs.length}</strong></div><div><span>Weekly payable</span><strong>{money.format(entries.filter((entry) => directs.some((person) => person.handle.toLowerCase() === entry.handle.toLowerCase())).reduce((sum, entry) => sum + payable(entry), 0))}</strong></div></div><div className="member-stack">{directs.map((member) => <div key={member.id}><Avatar name={member.name}/><span>{member.name}</span><small>{member.handle}</small></div>)}</div><button className="card-button" aria-expanded={selectedGroup === "direct"} onClick={() => openManager("direct")}>{selectedGroup === "direct" ? "Close manager" : "Manage contractors"}</button></section>
+  })}<section className={`surface team-card direct-card ${selectedGroup === "direct" ? "managing" : ""}`}><div className="team-owner"><span className="direct-symbol">↗</span><div><span>Independent</span><h2>Direct contractors</h2><p>Paid without a team lead</p></div></div><div className="team-summary"><div><span>Contributors</span><strong>{directs.length}</strong></div><div><span>Weekly payable</span><strong>{money.format(entries.filter((entry) => directs.some((person) => entry.personId ? person.id === entry.personId : person.handle.toLowerCase() === entry.handle.toLowerCase())).reduce((sum, entry) => sum + payable(entry), 0))}</strong></div></div><div className="member-stack">{directs.map((member) => <div key={member.id}><Avatar name={member.name}/><span>{member.name}</span><small>{member.handle}</small></div>)}</div><button className="card-button" aria-expanded={selectedGroup === "direct"} onClick={() => openManager("direct")}>{selectedGroup === "direct" ? "Close manager" : "Manage contractors"}</button></section>
 
   {selectedGroup && <section className="surface team-manager" aria-live="polite">
     <div className="team-manager-header"><div><span>Team management</span><h2>{selectedGroup === "direct" ? "Direct contractors" : `${selectedLead?.name || "Team"}'s members`}</h2><p>Move contributors or change their status without leaving this page.</p></div><button className="round-action" onClick={() => setSelectedGroup(null)} aria-label="Close team manager">×</button></div>
@@ -454,8 +493,8 @@ function Teams({ people, entries, updatePerson }: { people: Person[]; entries: E
   </div>;
 }
 
-function Payouts({ totals, rows, payoutDate, setPayoutDate, status, approve, openIssues }: { totals: Totals; rows: PayoutRow[]; payoutDate: string; setPayoutDate: (value: string) => void; status: "Draft" | "Approved"; approve: () => void; openIssues: number }) {
-  return <div className="stack"><section className="payout-hero"><div><Status value={status}/><h2>Aug 24 – Aug 30</h2><p>Batch VLX-2026-W35 · USD · Rule set v1</p></div><div className="payout-total"><span>Total to distribute</span><strong>{money.format(totals.pay)}</strong></div><div className="approval-block"><label>Payout date<input type="date" min={today} value={payoutDate} onChange={(event) => setPayoutDate(event.target.value)} /></label><button className="button primary" onClick={approve} disabled={status === "Approved"}>{status === "Approved" ? "Approved" : "Approve payout"}</button></div></section>{!payoutDate && <div className="alert warning-alert"><span>!</span><div><b>Approval is waiting for a payout date</b><p>The batch is calculated, but no money can be approved until the schedule is confirmed.</p></div></div>}{openIssues > 1 && <div className="alert error-alert"><span>!</span><div><b>{openIssues - 1} receipt issues remain</b><p>Resolve every source exception before approving this payout.</p></div></div>}<section className="surface table-surface"><div className="section-header"><div><h2>Distribution</h2><p>Every amount is grouped under its final recipient.</p></div><button className="button secondary">Export CSV</button></div><div className="data-table payout-table"><div className="data-head"><span>Recipient</span><span>Route</span><span>All gross</span><span>Problem gross</span><span>Villix keeps</span><span>Payable</span></div>{rows.map((row) => <div className="data-row" key={row.key}><div className="identity-cell"><Avatar name={row.name}/><div><b>{row.name}</b><small>{row.handle} · {row.contributors} contributor{row.contributors === 1 ? "" : "s"}</small></div></div><span>{row.route}</span><span>{money.format(row.gross)}</span><span>{money.format(row.eligible)}</span><span>{money.format(row.gross - row.payout)}</span><strong className="payable">{money.format(row.payout)}</strong></div>)}</div><div className="table-total"><span>Batch totals</span><span>{money.format(totals.gross)}</span><span>{money.format(totals.gross - totals.pay)}</span><strong>{money.format(totals.pay)}</strong></div></section></div>;
+function Payouts({ totals, rows, payoutDate, payoutDay, status, approve, openIssues }: { totals: Totals; rows: PayoutRow[]; payoutDate: string; payoutDay: PayoutWeekday; status: "Draft" | "Approved"; approve: () => void; openIssues: number }) {
+  return <div className="stack"><section className="payout-hero"><div><Status value={status}/><h2>{activePayoutPeriod.label}</h2><p>Batch {activePayoutPeriod.batchLabel} · USD · Rule set v1</p></div><div className="payout-total"><span>Total to distribute</span><strong>{money.format(totals.pay)}</strong></div><div className="approval-block"><div className="automatic-payout-date"><span>Scheduled automatically</span><strong>{displayPayoutDate(payoutDate)}</strong><small>Weekly · every {payoutDay}</small></div><button className="button primary" onClick={approve} disabled={status === "Approved" || openIssues > 0}>{status === "Approved" ? "Approved" : "Approve payout"}</button></div></section>{openIssues > 0 && <div className="alert error-alert"><span>!</span><div><b>{openIssues} receipt {openIssues === 1 ? "issue remains" : "issues remain"}</b><p>Resolve every source exception before approving this payout.</p></div></div>}<section className="surface table-surface"><div className="section-header"><div><h2>Distribution</h2><p>Every amount is grouped under its final recipient.</p></div><button className="button secondary">Export CSV</button></div><div className="data-table payout-table"><div className="data-head"><span>Recipient</span><span>Route</span><span>All gross</span><span>Problem gross</span><span>Villix keeps</span><span>Payable</span></div>{rows.map((row) => <div className="data-row" key={row.key}><div className="identity-cell"><Avatar name={row.name}/><div><b>{row.name}</b><small>{row.handle} · {row.contributors} contributor{row.contributors === 1 ? "" : "s"}</small></div></div><span>{row.route}</span><span>{money.format(row.gross)}</span><span>{money.format(row.eligible)}</span><span>{money.format(row.gross - row.payout)}</span><strong className="payable">{money.format(row.payout)}</strong></div>)}</div><div className="table-total"><span>Batch totals</span><span>{money.format(totals.gross)}</span><span>{money.format(totals.gross - totals.pay)}</span><strong>{money.format(totals.pay)}</strong></div></section></div>;
 }
 
 function Reconciliation({ rows, batchStatus, statuses, setStatuses, notify, addAudit, readyPayments }: { rows: PayoutRow[]; batchStatus: "Draft" | "Approved"; statuses: Record<string, PaymentStatus>; setStatuses: React.Dispatch<React.SetStateAction<Record<string, PaymentStatus>>>; notify: (message: string) => void; addAudit: (title: string, detail: string, tone?: AuditEvent["tone"]) => void; readyPayments: number }) {
@@ -567,12 +606,12 @@ function PublishRulesModal({ version, ruleCount, close, publish }: { version: nu
   return <div className="modal-backdrop"><section className="modal publish-modal" role="dialog" aria-modal="true" aria-labelledby="publish-rules-title"><header><div><span>Final review</span><h2 id="publish-rules-title">Publish version {version}</h2></div><button onClick={close} aria-label="Close">×</button></header><form onSubmit={submit}><div className="publish-summary"><span className="publish-symbol">✓</span><div><b>{ruleCount} active {ruleCount === 1 ? "rule" : "rules"} ready</b><p>Once published, this version becomes read-only and is used for future receipt imports.</p></div></div><label className="publish-date">Effective date<input name="effectiveDate" type="date" required defaultValue={new Date().toISOString().slice(0, 10)}/></label><div className="modal-note warning"><span>!</span>Publish policy changes between weekly payout periods whenever possible. A week cannot be approved if it mixes rule versions.</div><footer><button type="button" className="button secondary" onClick={close}>Keep editing</button><button className="button primary" type="submit" disabled={busy || ruleCount === 0}>{busy ? "Publishing…" : "Publish policy"}</button></footer></form></section></div>;
 }
 
-function Settings({ saved, save }: { saved: boolean; save: () => void }) {
+function Settings({ saved, payoutDay, setPayoutDay, save }: { saved: boolean; payoutDay: PayoutWeekday; setPayoutDay: (day: PayoutWeekday) => void; save: () => Promise<void> }) {
   return <div className="settings-layout"><section className="surface settings-card">
-    <div className="settings-section"><div><h2>Payout schedule</h2><p>Define how weekly batches are created.</p></div><div className="settings-fields"><label>Week starts<select defaultValue="Monday"><option>Monday</option><option>Sunday</option><option>Saturday</option></select></label><label>Cutoff time<input type="time" defaultValue="18:00" /></label><label>Timezone<select defaultValue="America/Los_Angeles"><option>America/Los_Angeles</option><option>UTC</option><option>America/New_York</option></select></label></div></div>
+    <div className="settings-section"><div><h2>Payout schedule</h2><p>Villix creates one payout batch every week. The selected day applies to future batches.</p></div><div className="settings-fields"><label>Frequency<select value="Weekly" disabled><option>Weekly</option></select></label><label>Payout day<select value={payoutDay} onChange={(event) => setPayoutDay(event.target.value as PayoutWeekday)}>{(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as PayoutWeekday[]).map((day) => <option key={day}>{day}</option>)}</select></label><label>Timezone<select value="Asia/Kolkata" disabled><option>Asia/Kolkata</option></select></label></div></div>
     <div className="settings-section"><div><h2>Money</h2><p>Currency and approval controls.</p></div><div className="settings-fields"><label>Currency<select defaultValue="USD"><option>USD</option><option>EUR</option><option>GBP</option></select></label><label>Second approval above<input defaultValue="$5,000.00" /></label><label className="toggle-label">Two-person approval<input className="toggle-input" type="checkbox" defaultChecked/><span className="toggle on"><i/></span></label></div></div>
     <div className="settings-section"><div><h2>Notifications</h2><p>Choose which operational changes reach admins.</p></div><div className="toggle-list"><label>Receipt needs review<input className="toggle-input" type="checkbox" defaultChecked/><span className="toggle on"><i/></span></label><label>Payout approved<input className="toggle-input" type="checkbox" defaultChecked/><span className="toggle on"><i/></span></label><label>Payment failed<input className="toggle-input" type="checkbox" defaultChecked/><span className="toggle on"><i/></span></label><label>Weekly summary<input className="toggle-input" type="checkbox"/><span className="toggle"><i/></span></label></div></div>
-    <div className="settings-footer"><span>{saved ? "✓ Changes saved" : "Settings apply to future batches."}</span><button className="button primary" onClick={save}>Save changes</button></div>
+    <div className="settings-footer"><span>{saved ? "✓ Changes saved" : `Next weekly payout is scheduled for ${displayPayoutDate(scheduledPayoutDate(activePayoutPeriod.end, payoutDay))}.`}</span><button className="button primary" onClick={() => void save()}>Save changes</button></div>
   </section><aside className="surface security-card"><span className="security-symbol">⌾</span><h2>Private workspace</h2><p>Only explicitly authorized administrators can access Villix Manager.</p><div><span>Authentication</span><strong>Required</strong></div><div><span>Session logging</span><strong>Active</strong></div><div><span>Payment detail access</span><strong>Restricted</strong></div></aside></div>;
 }
 

@@ -87,3 +87,27 @@ test("provides person performance profiles and protects financial history on rem
   assert.match(peopleRoute, /cannot be removed because/);
   assert.match(stateRoute, /personId: entry\.contributor_id/);
 });
+
+test("shows receipt breakdowns and enforces the weekly payout schedule", async () => {
+  const [managerApp, stateRoute, payoutRoute, settingsRoute, schedule] = await Promise.all([
+    readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/state/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/payouts/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/settings/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/payout-schedule.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(managerApp, /function ReceiptDetailModal/);
+  assert.match(managerApp, /Receipt breakdown/);
+  assert.match(managerApp, /Villix keeps/);
+  assert.match(managerApp, /Tap to view full breakdown/);
+  assert.match(managerApp, /Scheduled automatically/);
+  assert.doesNotMatch(managerApp, /Choose this week’s payout date/);
+  assert.doesNotMatch(managerApp, /Payout date<input type="date"/);
+  assert.match(stateRoute, /receiptEntries/);
+  assert.match(payoutRoute, /scheduledPayoutDate\(periodEnd, payoutDay\)/);
+  assert.match(payoutRoute, /workspace_settings/);
+  assert.match(settingsRoute, /Reviewers cannot change payout settings/);
+  assert.match(settingsRoute, /payout_policy/);
+  assert.match(schedule, /scheduledPayoutDate/);
+  assert.match(schedule, /label: "Aug 24 – Aug 30"/);
+});
