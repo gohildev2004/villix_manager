@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { contributorPortalPath } from "@/lib/contributor-portal";
 
 export default function PayeeConfirmPage() {
   const router = useRouter();
@@ -25,15 +26,15 @@ export default function PayeeConfirmPage() {
       const session = "data" in result && result.data && "session" in result.data ? result.data.session : null;
       if (result.error || (!code && !tokenHash && !session)) {
         if (active) setMessage("This sign-in request is invalid or expired.");
-        window.setTimeout(() => router.replace("/payee/login?error=invalid_link"), 700);
+        window.setTimeout(() => router.replace(`${contributorPortalPath(window.location.host, "login")}?error=invalid_link`), 700);
         return;
       }
-      window.history.replaceState({}, document.title, "/payee/auth/confirm");
-      router.replace("/payee");
+      window.history.replaceState({}, document.title, contributorPortalPath(window.location.host, "auth/confirm"));
+      router.replace(contributorPortalPath(window.location.host));
       router.refresh();
     }
     void confirm();
     return () => { active = false; };
   }, [router]);
-  return <main className="payee-login-page"><section className="payee-login-card payee-confirm-card"><div className="payee-brand"><Image src="/villix-logo.svg" alt="Villix" width={50} height={38} style={{ width: 50, height: 38 }} priority unoptimized /><span>Villix Payee</span></div><div className="payee-confirm-spinner"/><h1>Opening your portal.</h1><p role="status">{message}</p></section></main>;
+  return <main className="payee-login-page"><section className="payee-login-card payee-confirm-card"><div className="payee-brand"><Image src="/villix-logo.svg" alt="Villix" width={50} height={38} style={{ width: 50, height: 38 }} priority unoptimized /><span>Villix Contributor</span></div><div className="payee-confirm-spinner"/><h1>Opening your portal.</h1><p role="status">{message}</p></section></main>;
 }

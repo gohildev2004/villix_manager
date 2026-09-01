@@ -149,7 +149,7 @@ test("locks INR payout snapshots and guards provider dispatch", async () => {
 });
 
 test("prepares a restricted payee portal, hosted onboarding handoff, and payout reconciliation", async () => {
-  const [managerApp, payeeRoute, portalAccessRoute, payeePage, payeeServer, webhookRoute, syncRoute, provider, reconciliation, migration, portalMigration, renderConfig] = await Promise.all([
+  const [managerApp, payeeRoute, portalAccessRoute, payeePage, payeeServer, webhookRoute, syncRoute, provider, reconciliation, migration, portalMigration, renderConfig, proxy, contributorPortal] = await Promise.all([
     readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/payees/razorpayx/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/payee-portal/access/route.ts", import.meta.url), "utf8"),
@@ -162,6 +162,8 @@ test("prepares a restricted payee portal, hosted onboarding handoff, and payout 
     readFile(new URL("../supabase/migrations/20260901100000_razorpayx_reconciliation.sql", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/20260901143000_payee_portal_foundation.sql", import.meta.url), "utf8"),
     readFile(new URL("../render.yaml", import.meta.url), "utf8"),
+    readFile(new URL("../proxy.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/contributor-portal.ts", import.meta.url), "utf8"),
   ]);
   assert.match(managerApp, /Invite recipient/);
   assert.match(managerApp, /Villix never asks an administrator to type a recipient’s account number/);
@@ -169,6 +171,12 @@ test("prepares a restricted payee portal, hosted onboarding handoff, and payout 
   assert.match(managerApp, /Sync statuses/);
   assert.match(portalAccessRoute, /shouldCreateUser: false/);
   assert.match(portalAccessRoute, /payee_portal_accounts/);
+  assert.match(portalAccessRoute, /contributorPortalConfirmUrl/);
+  assert.match(renderConfig, /https:\/\/contributor\.villix\.in/);
+  assert.match(proxy, /isContributorPortalHost/);
+  assert.match(proxy, /\["\/", "\/payee"\]/);
+  assert.match(proxy, /new NextResponse\("Not found", \{ status: 404/);
+  assert.match(contributorPortal, /contributor\.villix\.in/);
   assert.match(payeePage, /RAZORPAYX_VENDOR_PORTAL_ENABLED/);
   assert.match(payeePage, /Continue in RazorpayX/);
   assert.match(payeeServer, /\.eq\("user_id", userData\.user\.id\)/);

@@ -34,7 +34,7 @@ Create a **Web Service** from this repository. Render can read `render.yaml`; se
 
 For contractor payouts, configure the server-only `SUPABASE_SECRET_KEY`, `RAZORPAYX_KEY_ID`, `RAZORPAYX_KEY_SECRET`, `RAZORPAYX_ACCOUNT_NUMBER`, and `RAZORPAYX_WEBHOOK_SECRET` values in Render. RazorpayX requires the Render outbound IP to be allowlisted and an idempotency key on every payout request. Keep these values out of all `NEXT_PUBLIC_*` variables. Villix supports verified Indian bank accounts only and records, approves, and sends every payout in INR.
 
-Final payout recipients use the separate `/payee` portal. Administrators invite only team leads and independent contributors; contributors assigned to a team lead do not receive individual portal access. Login is passwordless and every page is server-filtered to the authenticated recipient’s permanent person ID. The portal never exposes the administrator workspace or direct Supabase table access.
+Final payout recipients use the separate `https://contributor.villix.in` portal (`/payee` remains a local-development and compatibility path). Administrators invite only team leads and independent contributors; contributors assigned to a team lead do not receive individual portal access. Login is passwordless and every page is server-filtered to the authenticated recipient’s permanent person ID. Hostname routing fails closed so the contributor domain cannot expose the administrator workspace or its API routes.
 
 `PAYOUTS_LIVE_ENABLED` defaults to `false`. In this test mode, administrators can import receipts, verify calculations, and approve test batches, but the dispatch API refuses to create bank transfers. Set it to `true` only after production RazorpayX onboarding, credential verification, IP allowlisting, and a controlled payout test.
 
@@ -61,7 +61,7 @@ npm ci && npm run build
 npm start
 ```
 
-After deployment, add the Render origin, `https://admin.villix.in/auth/confirm`, and `https://admin.villix.in/payee/auth/confirm` to the Supabase Auth redirect allow list. Keep `PAYEE_PORTAL_ORIGIN` pinned to the canonical HTTPS origin so invitation links never depend on a request host header.
+After deployment, add the Render origin, `https://admin.villix.in/auth/confirm`, and `https://contributor.villix.in/auth/confirm` to the Supabase Auth redirect allow list. Keep `PAYEE_PORTAL_ORIGIN` and `NEXT_PUBLIC_CONTRIBUTOR_PORTAL_URL` pinned to `https://contributor.villix.in` so invitation links and administrator previews never depend on a request host header.
 
 ## Database
 

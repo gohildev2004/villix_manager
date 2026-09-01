@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { contributorPortalPath } from "@/lib/contributor-portal";
 
 const OTP_LENGTH = 8;
 
@@ -32,7 +33,7 @@ export default function PayeeLoginForm() {
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim().toLowerCase(),
-      options: { shouldCreateUser: false, emailRedirectTo: `${window.location.origin}/payee/auth/confirm` },
+      options: { shouldCreateUser: false, emailRedirectTo: `${window.location.origin}${contributorPortalPath(window.location.host, "auth/confirm")}` },
     });
     setBusy(false);
     if (error) {
@@ -57,7 +58,7 @@ export default function PayeeLoginForm() {
       setMessage("That code is incorrect or expired. Request a new code and try again.");
       return;
     }
-    router.replace("/payee");
+    router.replace(contributorPortalPath(window.location.host));
     router.refresh();
   }
 

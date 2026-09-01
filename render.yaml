@@ -28,7 +28,9 @@ services:
       - key: RAZORPAYX_PAYOUT_MODE
         value: NEFT
       - key: PAYEE_PORTAL_ORIGIN
-        value: https://admin.villix.in
+        value: https://contributor.villix.in
+      - key: NEXT_PUBLIC_CONTRIBUTOR_PORTAL_URL
+        value: https://contributor.villix.in
       - key: RAZORPAYX_VENDOR_PORTAL_ENABLED
         value: "false"
       - key: RAZORPAYX_VENDOR_PORTAL_URL

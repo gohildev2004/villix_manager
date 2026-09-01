@@ -1,6 +1,7 @@
 import { createClient as createSupabaseClient, type User } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { publicOrigin } from "@/lib/public-origin";
+import { contributorPortalConfirmUrl } from "@/lib/contributor-portal";
 import { addAudit, errorResponse, requireAdmin } from "@/lib/villix-server";
 
 async function findUserByEmail(email: string) {
@@ -36,7 +37,7 @@ async function sendPortalCode(email: string, request: Request) {
   const supabase = createSupabaseClient(url, key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
   const { error } = await supabase.auth.signInWithOtp({
     email,
-    options: { shouldCreateUser: false, emailRedirectTo: `${origin}/payee/auth/confirm` },
+    options: { shouldCreateUser: false, emailRedirectTo: contributorPortalConfirmUrl(origin) },
   });
   if (error) throw error;
 }
