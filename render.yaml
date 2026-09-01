@@ -21,3 +21,5 @@ services:
         sync: false
       - key: RAZORPAYX_PAYOUT_MODE
         value: NEFT
+      - key: PAYOUTS_LIVE_ENABLED
+        value: "false"

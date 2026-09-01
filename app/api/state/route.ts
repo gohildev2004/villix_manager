@@ -104,6 +104,7 @@ export async function GET() {
       } : null,
       providerReadiness: {
         razorpayxConfigured: Boolean(process.env.RAZORPAYX_KEY_ID && process.env.RAZORPAYX_KEY_SECRET && process.env.RAZORPAYX_ACCOUNT_NUMBER),
+        payoutsLive: process.env.PAYOUTS_LIVE_ENABLED === "true",
       },
       ruleVersions: (ruleVersionsQuery.data ?? []).map((version) => ({
         version: version.version,

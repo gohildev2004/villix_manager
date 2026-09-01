@@ -511,7 +511,10 @@ h1 { margin: 0; font-size: clamp(29px, 3.1vw, 43px); line-height: 1.03; letter-s
 .server-state i { width: 7px; height: 7px; border-radius: 50%; background: #ff9f0a; box-shadow: 0 0 0 3px rgba(255,159,10,.12); }
 .server-state.online i { background: #34c759; box-shadow: 0 0 0 3px rgba(52,199,89,.12); }
 .server-state.error i { background: #ff3b30; box-shadow: 0 0 0 3px rgba(255,59,48,.12); }
-@media (max-width: 760px) { .server-state { display: none; } }
+.environment-state { padding: 5px 9px; border-radius: 999px; font-size: 9px; font-weight: 670; white-space: nowrap; }
+.environment-state.test { color: #875b00; background: #fff2d7; }
+.environment-state.live { color: #287943; background: #e9f7ed; }
+@media (max-width: 760px) { .server-state { display: none; } .environment-state { font-size: 8px; } }
 
 /* Apple-inspired interface refinement */
 :root {

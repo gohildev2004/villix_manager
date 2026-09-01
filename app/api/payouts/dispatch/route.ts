@@ -9,6 +9,9 @@ export async function POST(request: Request) {
   try {
     const { actor, supabase } = await requireAdmin();
     if (actor.role === "reviewer") return Response.json({ error: "Reviewers cannot send payouts." }, { status: 403 });
+    if (process.env.PAYOUTS_LIVE_ENABLED !== "true") {
+      return Response.json({ error: "Payouts are locked in test mode. No real transfers can be created." }, { status: 409 });
+    }
     const body = await request.json() as { batchId?: string; confirmed?: boolean };
     if (!body.confirmed || !body.batchId) return Response.json({ error: "Confirm the approved batch before sending money." }, { status: 400 });
     if (!razorpayxConfigured()) return Response.json({ error: "Connect RazorpayX server credentials before sending this batch." }, { status: 409 });

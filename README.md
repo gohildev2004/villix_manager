@@ -34,6 +34,8 @@ Create a **Web Service** from this repository. Render can read `render.yaml`; se
 
 For live contractor payouts, configure the server-only `RAZORPAYX_KEY_ID`, `RAZORPAYX_KEY_SECRET`, and `RAZORPAYX_ACCOUNT_NUMBER` values in Render. RazorpayX requires the Render outbound IP to be allowlisted and an idempotency key on every payout request. Keep these values out of all `NEXT_PUBLIC_*` variables. Villix supports verified Indian bank accounts only and records, approves, and sends every payout in INR.
 
+`PAYOUTS_LIVE_ENABLED` defaults to `false`. In this test mode, administrators can import receipts, verify calculations, and approve test batches, but the dispatch API refuses to create bank transfers. Set it to `true` only after production RazorpayX onboarding, credential verification, IP allowlisting, and a controlled payout test.
+
 Build and start commands:
 
 ```text

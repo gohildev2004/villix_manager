@@ -19,7 +19,7 @@ type RuleVersion = { version: number; status: "draft" | "published" | "archived"
 type ContributionRule = { version: number; type: string; label: string; description: string; recipientPercentage: number; active: boolean };
 type RuleInput = Omit<ContributionRule, "version">;
 type PayoutSnapshot = { id: string; exchangeRate: number; adjustmentBps: number; grossInr: number; retainedInr: number; payableInr: number; provider: string; recipients: Array<{ personId: string; status: string; currency: string; amount: number; provider: string | null }> };
-type ServerState = { people: Person[]; entries: Entry[]; receiptEntries: Entry[]; receipts: Receipt[]; audit: AuditEvent[]; batchStatus: "Draft" | "Approved"; payoutDate: string; payoutDay: PayoutWeekday; paymentStatuses: Record<string, PaymentStatus>; payoutSnapshot: PayoutSnapshot | null; providerReadiness: { razorpayxConfigured: boolean }; ruleVersions: RuleVersion[]; rules: ContributionRule[]; actor: { name: string; email: string; role: string }; persistence: string };
+type ServerState = { people: Person[]; entries: Entry[]; receiptEntries: Entry[]; receipts: Receipt[]; audit: AuditEvent[]; batchStatus: "Draft" | "Approved"; payoutDate: string; payoutDay: PayoutWeekday; paymentStatuses: Record<string, PaymentStatus>; payoutSnapshot: PayoutSnapshot | null; providerReadiness: { razorpayxConfigured: boolean; payoutsLive: boolean }; ruleVersions: RuleVersion[]; rules: ContributionRule[]; actor: { name: string; email: string; role: string }; persistence: string };
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
@@ -63,7 +63,7 @@ export default function ManagerApp() {
   const [batchStatus, setBatchStatus] = useState<"Draft" | "Approved">("Draft");
   const [paymentStatuses, setPaymentStatuses] = useState<Record<string, PaymentStatus>>({});
   const [payoutSnapshot, setPayoutSnapshot] = useState<PayoutSnapshot | null>(null);
-  const [providerReadiness, setProviderReadiness] = useState({ razorpayxConfigured: false });
+  const [providerReadiness, setProviderReadiness] = useState({ razorpayxConfigured: false, payoutsLive: false });
   const [exchangeRate, setExchangeRate] = useState("");
   const [settlementAdjustment, setSettlementAdjustment] = useState("0");
   const [ruleVersions, setRuleVersions] = useState<RuleVersion[]>([]);
@@ -265,8 +265,7 @@ export default function ManagerApp() {
           <div className="app-crumb">Villix Manager <span>/</span> {viewCopy[view].title}</div>
           <div className="app-actions">
             <span className={`server-state ${serverStatus}`}><i/>{serverStatus === "online" ? "Database live" : serverStatus === "connecting" ? "Connecting" : "Server offline"}</span>
-            <button className="round-action" aria-label="Search">⌕</button>
-            <button className="round-action" aria-label="Notifications">◦</button>
+            <span className={`environment-state ${providerReadiness.payoutsLive ? "live" : "test"}`}>{providerReadiness.payoutsLive ? "Live payouts" : "Test mode"}</span>
             <button className="button primary" onClick={() => fileRef.current?.click()}>Import receipt</button>
             <input className="hidden-file" ref={fileRef} type="file" accept="application/pdf,.pdf" onChange={(event) => { const file = event.target.files?.[0]; if (file) void parseReceipt(file); }} />
           </div>
@@ -523,15 +522,15 @@ function Payouts({ totals, rows, payoutDate, payoutDay, status, approve, openIss
   </div>;
 }
 
-function Reconciliation({ rows, people, batchStatus, statuses, readyPayments, snapshot, providerReadiness, dispatch }: { rows: PayoutRow[]; people: Person[]; batchStatus: "Draft" | "Approved"; statuses: Record<string, PaymentStatus>; readyPayments: number; snapshot: PayoutSnapshot | null; providerReadiness: { razorpayxConfigured: boolean }; dispatch: () => Promise<void> }) {
+function Reconciliation({ rows, people, batchStatus, statuses, readyPayments, snapshot, providerReadiness, dispatch }: { rows: PayoutRow[]; people: Person[]; batchStatus: "Draft" | "Approved"; statuses: Record<string, PaymentStatus>; readyPayments: number; snapshot: PayoutSnapshot | null; providerReadiness: { razorpayxConfigured: boolean; payoutsLive: boolean }; dispatch: () => Promise<void> }) {
   const paidRecipients = snapshot?.recipients.filter((recipient) => statuses[recipient.personId] === "Paid") ?? [];
   const paidInr = paidRecipients.reduce((sum, recipient) => sum + recipient.amount, 0);
   const peopleReady = rows.every((row) => people.find((person) => person.id === row.key)?.payoutReady);
   const hasProcessing = Object.values(statuses).some((status) => status === "Processing");
   const providersReady = providerReadiness.razorpayxConfigured;
-  const canSend = batchStatus === "Approved" && Boolean(snapshot) && peopleReady && providersReady && Object.values(statuses).every((value) => value === "Ready");
-  return <div className="stack"><section className="recon-summary"><Stat label="Expected settlement" value={snapshot ? inr.format(snapshot.payableInr) : "Not approved"} note={`${readyPayments} payment recipients`} /><Stat label="Confirmed INR paid" value={inr.format(paidInr)} note={`${paidRecipients.length} completed`} /><Stat label="RazorpayX" value={providersReady ? "Ready" : "Setup needed"} note="Indian bank payouts only" /></section>
-    {!canSend && <div className="alert warning-alert"><span>i</span><div><b>{batchStatus === "Draft" ? "Approve and lock this payout first" : hasProcessing ? "Transfers are processing" : !peopleReady ? "Recipient Indian bank accounts are incomplete" : "RazorpayX setup is incomplete"}</b><p>{hasProcessing ? "Do not resend this batch. Final provider confirmation will update each recipient status." : "Add RazorpayX server credentials and a ready fund account ID for every recipient."}</p></div></div>}
+  const canSend = providerReadiness.payoutsLive && batchStatus === "Approved" && Boolean(snapshot) && peopleReady && providersReady && Object.values(statuses).every((value) => value === "Ready");
+  return <div className="stack"><section className="recon-summary"><Stat label="Expected settlement" value={snapshot ? inr.format(snapshot.payableInr) : "Not approved"} note={`${readyPayments} payment recipients`} /><Stat label="Confirmed INR paid" value={inr.format(paidInr)} note={`${paidRecipients.length} completed`} /><Stat label="RazorpayX" value={providersReady ? "Ready" : "Setup needed"} note={providerReadiness.payoutsLive ? "Live Indian bank payouts" : "Test mode · Indian bank payouts only · transfers locked"} /></section>
+    {!canSend && <div className="alert warning-alert"><span>i</span><div><b>{!providerReadiness.payoutsLive ? "Payouts are locked in test mode" : batchStatus === "Draft" ? "Approve and lock this payout first" : hasProcessing ? "Transfers are processing" : !peopleReady ? "Recipient Indian bank accounts are incomplete" : "RazorpayX setup is incomplete"}</b><p>{!providerReadiness.payoutsLive ? "You can import receipts, review calculations, and approve test batches, but no bank transfer can be created." : hasProcessing ? "Do not resend this batch. Final provider confirmation will update each recipient status." : "Add RazorpayX server credentials and a ready fund account ID for every recipient."}</p></div></div>}
     <section className="surface table-surface"><div className="section-header"><div><h2>Payment ledger</h2><p>One action creates one idempotent RazorpayX INR transfer per recipient.</p></div><button className="button primary" disabled={!canSend} onClick={() => void dispatch()}>Send all payouts</button></div><div className="data-table recon-table"><div className="data-head"><span>Recipient</span><span>INR instruction</span><span>Provider</span><span>Status</span><span>Readiness</span></div>{rows.map((row) => { const person = people.find((candidate) => candidate.id === row.key); const recipient = snapshot?.recipients.find((item) => item.personId === row.key); const status = statuses[row.key] || "Ready"; return <div className="data-row" key={row.key}><div className="identity-cell"><Avatar name={row.name}/><div><b>{row.name}</b><small>{row.route}</small></div></div><strong>{recipient ? inr.format(recipient.amount) : money.format(row.payout)}</strong><span>RazorpayX</span><Status value={status}/><Status value={person?.payoutReady ? "Ready" : "Setup needed"}/></div>; })}</div></section></div>;
 }
 

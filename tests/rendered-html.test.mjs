@@ -113,12 +113,14 @@ test("shows receipt breakdowns and enforces the weekly payout schedule", async (
 });
 
 test("locks INR payout snapshots and guards provider dispatch", async () => {
-  const [managerApp, payoutRoute, dispatchRoute, provider, migration] = await Promise.all([
+  const [managerApp, payoutRoute, dispatchRoute, stateRoute, provider, migration, renderConfig] = await Promise.all([
     readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/payouts/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/payouts/dispatch/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/state/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/razorpayx.ts", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/20260901015829_multi_currency_payout_snapshots.sql", import.meta.url), "utf8"),
+    readFile(new URL("../render.yaml", import.meta.url), "utf8"),
   ]);
   assert.match(managerApp, /INR settlement/);
   assert.match(managerApp, /No assumed fee/);
@@ -131,6 +133,15 @@ test("locks INR payout snapshots and guards provider dispatch", async () => {
   assert.match(payoutRoute, /currency: "INR"/);
   assert.match(dispatchRoute, /missing a ready RazorpayX fund account/);
   assert.match(dispatchRoute, /Reconcile them before retrying to prevent duplicate transfers/);
+  assert.match(dispatchRoute, /PAYOUTS_LIVE_ENABLED !== "true"/);
+  assert.match(dispatchRoute, /No real transfers can be created/);
+  assert.match(stateRoute, /payoutsLive: process\.env\.PAYOUTS_LIVE_ENABLED === "true"/);
+  assert.match(managerApp, /Test mode/);
+  assert.match(managerApp, /Payouts are locked in test mode/);
+  assert.doesNotMatch(managerApp, /aria-label="Search"/);
+  assert.doesNotMatch(managerApp, /aria-label="Notifications"/);
+  assert.match(renderConfig, /PAYOUTS_LIVE_ENABLED/);
+  assert.match(renderConfig, /value: "false"/);
   assert.match(provider, /X-Payout-Idempotency/);
   assert.match(provider, /queue_if_low_balance: false/);
   assert.match(migration, /payout_fx_rate/);
