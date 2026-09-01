@@ -27,5 +27,13 @@ services:
         sync: false
       - key: RAZORPAYX_PAYOUT_MODE
         value: NEFT
+      - key: PAYEE_PORTAL_ORIGIN
+        value: https://admin.villix.in
+      - key: RAZORPAYX_VENDOR_PORTAL_ENABLED
+        value: "false"
+      - key: RAZORPAYX_VENDOR_PORTAL_URL
+        value: https://x.razorpay.com/vendor-portal/
+      - key: RAZORPAYX_DIRECT_BANK_FORM_ENABLED
+        value: "false"
       - key: PAYOUTS_LIVE_ENABLED
         value: "false"

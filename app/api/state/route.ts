@@ -13,7 +13,7 @@ export async function GET() {
   try {
     const { actor, supabase } = await requireAdmin();
     const [peopleQuery, entriesQuery, receiptEntriesQuery, receiptsQuery, auditQuery, batchQuery, ruleVersionsQuery, rulesQuery, settingsQuery] = await Promise.all([
-      supabase.from("people").select("*,payee_profiles(onboarding_status,payout_provider,provider_contact_id,provider_recipient_id,bank_last4,ifsc,legal_name)").order("display_name"),
+      supabase.from("people").select("*,payee_profiles(onboarding_status,payout_provider,provider_contact_id,provider_recipient_id,bank_last4,ifsc,legal_name),payee_portal_accounts(status,provider_portal_status,invited_at,last_seen_at)").order("display_name"),
       supabase.from("contribution_entries").select("*, receipts!inner(filename,receipt_date,status)").in("receipts.status", ["verified", "approved"]).order("created_at"),
       supabase.from("contribution_entries").select("*, receipts!inner(filename,receipt_date,status)").order("created_at"),
       supabase.from("receipts").select("*, contribution_entries(count)").order("receipt_date", { ascending: false }).order("created_at", { ascending: false }),
@@ -27,6 +27,8 @@ export async function GET() {
 
     const people = (peopleQuery.data ?? []).map((person) => {
       const profile = Array.isArray(person.payee_profiles) ? person.payee_profiles[0] : person.payee_profiles;
+      const portal = Array.isArray(person.payee_portal_accounts) ? person.payee_portal_accounts[0] : person.payee_portal_accounts;
+      const portalStatus = portal?.status === "active" ? "Active" : portal?.status === "invited" ? "Invited" : portal?.status === "suspended" ? "Suspended" : "Not invited";
       return ({
       id: person.id,
       name: person.display_name,
@@ -43,6 +45,9 @@ export async function GET() {
       bankLast4: profile?.bank_last4,
       ifsc: profile?.ifsc,
       legalName: profile?.legal_name,
+      portalStatus,
+      portalInvitedAt: portal?.invited_at ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(portal.invited_at)) : null,
+      portalLastSeenAt: portal?.last_seen_at ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(portal.last_seen_at)) : null,
       payoutMethod: person.role === "team_lead" ? "Team payout account" : person.role === "admin" ? "Not applicable" : person.team_lead_id ? "Contractor account" : "Direct contractor",
     }); });
     const mapEntry = (entry: NonNullable<typeof entriesQuery.data>[number]) => ({

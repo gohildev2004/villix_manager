@@ -5,6 +5,9 @@ export async function POST(request: Request) {
   try {
     const { actor, supabase } = await requireAdmin();
     if (actor.role === "reviewer") return Response.json({ error: "Reviewers cannot configure payout accounts." }, { status: 403 });
+    if (process.env.RAZORPAYX_DIRECT_BANK_FORM_ENABLED !== "true") {
+      return Response.json({ error: "Direct bank entry is disabled. Invite the recipient to the payee portal and use RazorpayX-hosted onboarding." }, { status: 409 });
+    }
     if (!razorpayxConfigured()) return Response.json({ error: "Add the RazorpayX server credentials before onboarding a beneficiary." }, { status: 409 });
 
     const body = await request.json() as Record<string, unknown>;
@@ -53,11 +56,11 @@ export async function POST(request: Request) {
       country: "IN",
       currency: "INR",
       payout_provider: "razorpayx",
-      onboarding_status: "ready",
+      onboarding_status: "pending",
     }).eq("person_id", person.id);
     if (profileError) throw profileError;
 
-    await addAudit(supabase, actor, "payee.razorpayx_connected", "person", person.id, `${person.display_name} connected to RazorpayX`, `Indian bank beneficiary ending ${bankLast4} was verified and tokenized by RazorpayX. The full account number was not stored.`, "success");
+    await addAudit(supabase, actor, "payee.razorpayx_connected", "person", person.id, `${person.display_name} sent to RazorpayX`, `Indian bank beneficiary ending ${bankLast4} was created and is awaiting provider validation. The full account number was not stored.`, "warning");
     return Response.json({ ok: true, bankLast4, fundAccountId: fundAccount.id });
   } catch (error) {
     return errorResponse(error);

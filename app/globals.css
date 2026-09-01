@@ -394,6 +394,13 @@ h1 { margin: 0; font-size: clamp(29px, 3.1vw, 43px); line-height: 1.03; letter-s
 .edit-person-heading p { margin: 4px 0 0; color: var(--secondary); font-size: 10px; }
 .edit-person-heading > span { padding: 4px 7px; border-radius: 8px; color: var(--blue); background: #fff; font-size: 9px; white-space: nowrap; }
 .edit-person-form footer { margin-top: 15px !important; }
+.portal-access-summary { margin: 17px 0; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); overflow: hidden; border: 1px solid rgba(29,29,31,.08); border-radius: 13px; background: rgba(255,255,255,.74); }
+.portal-access-summary > div { min-height: 72px; padding: 13px; display: flex; flex-direction: column; justify-content: center; }
+.portal-access-summary > div + div { border-left: 1px solid rgba(29,29,31,.08); }
+.portal-access-summary span { margin-bottom: 6px; color: #8b8b91; font-size: 10px; }
+.portal-access-summary b { overflow: hidden; color: #303034; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.portal-access-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 9px; }
+.portal-access-actions .button { text-decoration: none; }
 .profile-metrics { display: grid; grid-template-columns: repeat(4,1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--line); gap: 1px; }
 .profile-metrics > div { min-height: 112px; padding: 17px; background: #fff; display: flex; flex-direction: column; }
 .profile-metrics span, .profile-team-summary span { color: var(--secondary); font-size: 10px; }
@@ -844,6 +851,89 @@ h1 { font-size: clamp(36px, 3.3vw, 48px); font-weight: 650; letter-spacing: -.04
   .profile-team-summary div + div { padding: 10px 0 0; border-left: 0; border-top: 1px solid rgba(0,113,227,.11); }
   .person-profile-footer { align-items: stretch; flex-direction: column; }
   .person-profile-footer .button { width: 100%; }
+  .portal-access-summary { grid-template-columns: 1fr; }
+  .portal-access-summary > div + div { border-left: 0; border-top: 1px solid rgba(29,29,31,.08); }
+  .portal-access-actions { align-items: stretch; flex-direction: column; }
+  .portal-access-actions .button { width: 100%; }
   .receipt-detail-body { padding: 18px; }
   .receipt-summary-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* Recipient-only portal. It intentionally does not reuse the administrator shell. */
+.payee-login-page, .payee-page { min-height: 100vh; color: #1d1d1f; background: radial-gradient(circle at 80% 8%,rgba(0,122,255,.09),transparent 29%), linear-gradient(160deg,#fbfcfb 0%,#f3f6f2 100%); }
+.payee-login-page { padding: 42px 20px; display: grid; place-items: center; }
+.payee-login-card { width: min(620px,100%); padding: 42px 48px 30px; border: 1px solid rgba(29,29,31,.08); border-radius: 34px; background: rgba(255,255,255,.9); box-shadow: 0 30px 90px rgba(30,50,35,.11); backdrop-filter: blur(30px) saturate(160%); }
+.payee-brand { display: flex; align-items: center; gap: 13px; color: #1d1d1f; font-size: 18px; font-weight: 680; letter-spacing: -.03em; }
+.payee-login-copy { margin: 68px 0 34px; }
+.payee-login-copy > span, .payee-welcome > span { color: #4d8342; font-size: 11px; font-weight: 750; letter-spacing: .13em; text-transform: uppercase; }
+.payee-login-copy h1 { margin: 15px 0 14px; font-size: clamp(42px,7vw,64px); line-height: .98; letter-spacing: -.065em; }
+.payee-login-copy p { max-width: 500px; margin: 0; color: #727277; font-size: 15px; line-height: 1.55; }
+.payee-login-form { display: grid; gap: 12px; }
+.payee-login-form label { color: #525257; font-size: 13px; font-weight: 650; }
+.payee-login-form input { width: 100%; height: 58px; padding: 0 17px; border: 1px solid #d8ddd7; border-radius: 16px; outline: 0; background: rgba(255,255,255,.8); color: #1d1d1f; font: inherit; font-size: 16px; transition: border-color .18s, box-shadow .18s; }
+.payee-login-form input:focus { border-color: #78a770; box-shadow: 0 0 0 4px rgba(91,145,80,.11); }
+.payee-login-form > button:not(.payee-secondary-button) { height: 56px; margin-top: 4px; border: 0; border-radius: 16px; background: #151716; color: #fff; font: inherit; font-size: 15px; font-weight: 680; cursor: pointer; }
+.payee-login-form button:disabled { cursor: not-allowed; opacity: .5; }
+.payee-code-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.payee-code-heading button, .payee-secondary-button { border: 0; background: transparent; color: #4d8342; font: inherit; font-size: 12px; cursor: pointer; }
+.payee-login-form > p { margin: -2px 0 2px; color: #88888d; font-size: 12px; }
+.payee-login-form .payee-code-input { height: 66px; text-align: center; font-size: 28px; font-weight: 720; letter-spacing: .24em; font-variant-numeric: tabular-nums; }
+.payee-login-message, .payee-login-error { padding: 11px 13px; border-radius: 12px; font-size: 12px !important; line-height: 1.45; }
+.payee-login-message { color: #3c6f35 !important; background: #eef7eb; }
+.payee-login-error { margin: -16px 0 22px; color: #92362e; background: #fff0ee; }
+.payee-login-card > footer { margin-top: 45px; color: #a0a0a5; text-align: center; font-size: 11px; }
+.payee-confirm-card { text-align: center; }
+.payee-confirm-card .payee-brand { justify-content: center; }
+.payee-confirm-card h1 { margin: 18px 0 8px; font-size: 32px; }
+.payee-confirm-card p { color: #77777d; }
+.payee-confirm-spinner { width: 34px; height: 34px; margin: 70px auto 0; border: 3px solid #e6ebe4; border-top-color: #4d8342; border-radius: 50%; animation: payee-spin .8s linear infinite; }
+@keyframes payee-spin { to { transform: rotate(360deg); } }
+.payee-topbar { height: 76px; padding: 0 max(24px,calc((100vw - 1180px)/2)); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(29,29,31,.08); background: rgba(251,252,251,.72); backdrop-filter: blur(24px) saturate(160%); }
+.payee-topbar a { padding: 9px 13px; border-radius: 999px; color: #5f6063; background: rgba(0,0,0,.045); font-size: 12px; text-decoration: none; }
+.payee-content { width: min(1180px,calc(100% - 40px)); margin: 0 auto; padding: 68px 0 38px; }
+.payee-welcome h1 { margin: 14px 0 10px; font-size: clamp(42px,6vw,70px); line-height: 1; letter-spacing: -.065em; }
+.payee-welcome p { max-width: 650px; margin: 0; color: #737378; font-size: 15px; line-height: 1.5; }
+.payee-status-card { min-height: 230px; margin-top: 42px; padding: 38px; display: flex; align-items: center; justify-content: space-between; gap: 38px; border: 1px solid rgba(29,29,31,.07); border-radius: 30px; background: linear-gradient(130deg,rgba(255,255,255,.98),rgba(239,248,235,.92)); box-shadow: 0 24px 70px rgba(37,60,38,.08); }
+.payee-status-card > div { display: flex; align-items: flex-start; gap: 20px; }
+.payee-status-dot { width: 18px; height: 18px; margin-top: 6px; flex: 0 0 auto; border-radius: 50%; background: #efa92d; box-shadow: 0 0 0 8px rgba(239,169,45,.12); }
+.payee-status-dot.ready { background: #34a853; box-shadow: 0 0 0 8px rgba(52,168,83,.12); }
+.payee-status-card small { color: #85858b; font-size: 11px; }
+.payee-status-card h2 { margin: 8px 0 10px; font-size: 30px; letter-spacing: -.045em; }
+.payee-status-card p { max-width: 650px; margin: 0; color: #707075; font-size: 13px; line-height: 1.55; }
+.payee-primary-action { min-width: 210px; min-height: 52px; padding: 0 18px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; border-radius: 15px; background: #151716; color: #fff; font-size: 13px; font-weight: 680; text-decoration: none; }
+.payee-metrics { margin: 20px 0; display: grid; grid-template-columns: repeat(3,1fr); overflow: hidden; border: 1px solid rgba(29,29,31,.07); border-radius: 22px; background: rgba(29,29,31,.07); gap: 1px; }
+.payee-metrics > div { min-height: 145px; padding: 24px; display: flex; flex-direction: column; background: rgba(255,255,255,.92); }
+.payee-metrics span, .payee-metrics small { color: #85858b; font-size: 11px; }
+.payee-metrics strong { margin: 18px 0 7px; font-size: 27px; letter-spacing: -.045em; }
+.payee-metrics small { margin-top: auto; }
+.payee-history { overflow: hidden; border: 1px solid rgba(29,29,31,.07); border-radius: 24px; background: rgba(255,255,255,.94); box-shadow: 0 18px 60px rgba(30,40,31,.05); }
+.payee-section-heading { min-height: 96px; padding: 23px 27px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(29,29,31,.07); }
+.payee-section-heading span, .payee-section-heading small { color: #88888d; font-size: 10px; text-transform: uppercase; letter-spacing: .09em; }
+.payee-section-heading h2 { margin: 6px 0 0; font-size: 20px; }
+.payee-history-list > div { min-height: 78px; padding: 16px 27px; display: flex; align-items: center; justify-content: space-between; gap: 25px; border-bottom: 1px solid rgba(29,29,31,.07); }
+.payee-history-list > div:last-child { border-bottom: 0; }
+.payee-history-list b, .payee-history-list span, .payee-history-list strong { display: block; }
+.payee-history-list b { font-size: 13px; }
+.payee-history-list span { margin-top: 4px; color: #929297; font-size: 10px; }
+.payee-history-list > div > div:last-child { text-align: right; }
+.payee-history-list strong { font-size: 15px; }
+.payee-payment-status { margin-top: 5px !important; color: #8a5b00 !important; text-transform: capitalize; }
+.payee-payment-status.paid { color: #398552 !important; }
+.payee-payment-status.failed { color: #a23b32 !important; }
+.payee-empty { padding: 65px 25px; text-align: center; }
+.payee-empty > span { color: #adb0ad; font-size: 30px; }
+.payee-empty h3 { margin: 10px 0 5px; }
+.payee-empty p { margin: 0; color: #8a8a8f; font-size: 12px; }
+.payee-footer { padding: 28px 4px 0; display: flex; justify-content: space-between; gap: 20px; color: #96969b; font-size: 10px; }
+@media (max-width: 720px) {
+  .payee-login-card { padding: 32px 24px 25px; border-radius: 26px; }
+  .payee-login-copy { margin-top: 52px; }
+  .payee-topbar { height: 66px; padding: 0 18px; }
+  .payee-content { width: min(100% - 28px,1180px); padding-top: 45px; }
+  .payee-status-card { min-height: 0; padding: 28px 24px; align-items: stretch; flex-direction: column; border-radius: 24px; }
+  .payee-primary-action { width: 100%; }
+  .payee-metrics { grid-template-columns: 1fr; }
+  .payee-metrics > div { min-height: 116px; }
+  .payee-history-list > div { align-items: flex-start; }
+  .payee-footer { flex-direction: column; }
 }

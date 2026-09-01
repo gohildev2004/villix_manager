@@ -148,21 +148,35 @@ test("locks INR payout snapshots and guards provider dispatch", async () => {
   assert.match(migration, /total_payable_settlement_cents/);
 });
 
-test("prepares secure RazorpayX beneficiary onboarding and payout reconciliation", async () => {
-  const [managerApp, payeeRoute, webhookRoute, syncRoute, provider, reconciliation, migration, renderConfig] = await Promise.all([
+test("prepares a restricted payee portal, hosted onboarding handoff, and payout reconciliation", async () => {
+  const [managerApp, payeeRoute, portalAccessRoute, payeePage, payeeServer, webhookRoute, syncRoute, provider, reconciliation, migration, portalMigration, renderConfig] = await Promise.all([
     readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/payees/razorpayx/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/payee-portal/access/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/payee/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/payee-server.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/webhooks/razorpayx/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/payouts/sync/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/razorpayx.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/razorpayx-reconciliation.ts", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/20260901100000_razorpayx_reconciliation.sql", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260901143000_payee_portal_foundation.sql", import.meta.url), "utf8"),
     readFile(new URL("../render.yaml", import.meta.url), "utf8"),
   ]);
-  assert.match(managerApp, /Create RazorpayX beneficiary/);
-  assert.match(managerApp, /Villix stores only the provider IDs, IFSC, and last four digits/);
-  assert.doesNotMatch(managerApp, /RazorpayX fund account ID<input/);
+  assert.match(managerApp, /Invite recipient/);
+  assert.match(managerApp, /Villix never asks an administrator to type a recipient’s account number/);
+  assert.doesNotMatch(managerApp, /name="accountNumber"/);
   assert.match(managerApp, /Sync statuses/);
+  assert.match(portalAccessRoute, /shouldCreateUser: false/);
+  assert.match(portalAccessRoute, /payee_portal_accounts/);
+  assert.match(payeePage, /RAZORPAYX_VENDOR_PORTAL_ENABLED/);
+  assert.match(payeePage, /Continue in RazorpayX/);
+  assert.match(payeeServer, /\.eq\("user_id", userData\.user\.id\)/);
+  assert.match(payeeServer, /account\.status === "suspended"/);
+  assert.match(portalMigration, /enable row level security/i);
+  assert.match(portalMigration, /private\.is_villix_admin/);
+  assert.match(portalMigration, /revoke all.*anon, authenticated/i);
+  assert.match(payeeRoute, /RAZORPAYX_DIRECT_BANK_FORM_ENABLED/);
   assert.match(payeeRoute, /createRazorpayxContact/);
   assert.match(payeeRoute, /createRazorpayxFundAccount/);
   assert.match(payeeRoute, /bank_last4: bankLast4/);
@@ -184,4 +198,6 @@ test("prepares secure RazorpayX beneficiary onboarding and payout reconciliation
   assert.doesNotMatch(migration, /raw_payload/);
   assert.match(renderConfig, /SUPABASE_SECRET_KEY/);
   assert.match(renderConfig, /RAZORPAYX_WEBHOOK_SECRET/);
+  assert.match(renderConfig, /RAZORPAYX_VENDOR_PORTAL_ENABLED/);
+  assert.match(renderConfig, /RAZORPAYX_DIRECT_BANK_FORM_ENABLED/);
 });

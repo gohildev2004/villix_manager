@@ -239,6 +239,53 @@ export type Database = {
         }
         Relationships: []
       }
+      payee_portal_accounts: {
+        Row: {
+          activated_at: string | null
+          created_at: string
+          created_by: string
+          invited_at: string
+          last_seen_at: string | null
+          person_id: string
+          provider_portal_status: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          activated_at?: string | null
+          created_at?: string
+          created_by: string
+          invited_at?: string
+          last_seen_at?: string | null
+          person_id: string
+          provider_portal_status?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          activated_at?: string | null
+          created_at?: string
+          created_by?: string
+          invited_at?: string
+          last_seen_at?: string | null
+          person_id?: string
+          provider_portal_status?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payee_portal_accounts_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: true
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payee_profiles: {
         Row: {
           bank_last4: string | null

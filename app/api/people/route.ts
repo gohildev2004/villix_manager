@@ -1,4 +1,5 @@
 import { addAudit, errorResponse, requireAdmin } from "@/lib/villix-server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const roles = new Map([["Contributor", "contributor"], ["Team lead", "team_lead"], ["Admin", "admin"]]);
 const statuses = new Map([["Active", "active"], ["Paused", "paused"]]);
@@ -52,7 +53,7 @@ export async function PATCH(request: Request) {
     if (actor.role === "reviewer") return Response.json({ error: "Reviewers cannot update people." }, { status: 403 });
     const body = await request.json() as Record<string, unknown>;
     const id = String(body.id ?? "");
-    const { data: current, error: currentError } = await supabase.from("people").select("id,display_name,handle,email,role,team_lead_id,status,currency").eq("id", id).maybeSingle();
+    const { data: current, error: currentError } = await supabase.from("people").select("id,display_name,handle,email,role,team_lead_id,status,currency,payee_portal_accounts(user_id)").eq("id", id).maybeSingle();
     if (currentError) throw currentError;
     if (!current) return Response.json({ error: "Person not found." }, { status: 404 });
 
@@ -78,10 +79,26 @@ export async function PATCH(request: Request) {
       if (count) return Response.json({ error: "Reassign this team lead’s contributors before changing their role." }, { status: 409 });
     }
     const payoutMethod = role === "team_lead" ? "team" : role === "admin" ? "none" : teamLeadId ? "contractor" : "direct";
+    const portal = Array.isArray(current.payee_portal_accounts) ? current.payee_portal_accounts[0] : current.payee_portal_accounts;
+    if (email !== current.email && portal?.user_id) {
+      if (!process.env.SUPABASE_SECRET_KEY) throw new Error("Add the Supabase server secret before changing an invited recipient’s email.");
+      const { error } = await createAdminClient().auth.admin.updateUserById(portal.user_id, { email, email_confirm: true });
+      if (error) throw error;
+    }
     const { error: updateError } = await supabase.from("people").update({ display_name: name, email, handle, role, team_lead_id: teamLeadId, status, payout_method: payoutMethod, currency }).eq("id", id);
-    if (updateError) throw updateError;
+    if (updateError) {
+      if (email !== current.email && portal?.user_id && process.env.SUPABASE_SECRET_KEY) {
+        await createAdminClient().auth.admin.updateUserById(portal.user_id, { email: current.email, email_confirm: true });
+      }
+      throw updateError;
+    }
     const { error: profileError } = await supabase.from("payee_profiles").update({ currency }).eq("person_id", id);
     if (profileError) throw profileError;
+    const remainsFinalRecipient = status === "active" && (role === "team_lead" || (role === "contributor" && !teamLeadId));
+    if (!remainsFinalRecipient && portal?.user_id) {
+      const { error: portalError } = await supabase.from("payee_portal_accounts").update({ status: "suspended" }).eq("person_id", id);
+      if (portalError) throw portalError;
+    }
     const assignmentChanged = role !== current.role || teamLeadId !== current.team_lead_id;
     if (current.role === "contributor" && assignmentChanged) {
       const today = new Date().toISOString().slice(0, 10);

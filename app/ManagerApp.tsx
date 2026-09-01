@@ -8,7 +8,8 @@ import { activePayoutPeriod, displayPayoutDate, type PayoutWeekday, scheduledPay
 type View = "overview" | "inbox" | "people" | "teams" | "payouts" | "reconciliation" | "audit" | "rules" | "settings";
 type Role = "Contributor" | "Team lead" | "Admin";
 type PersonStatus = "Active" | "Paused";
-type Person = { id: string; name: string; handle: string; email: string; role: Role; teamLeadId: string | null; status: PersonStatus; payoutMethod: string; currency: string; payoutReady: boolean; payoutProvider: string | null; providerContactId: string | null; providerRecipientId: string | null; bankLast4: string | null; ifsc: string | null; legalName: string | null };
+type PortalStatus = "Not invited" | "Invited" | "Active" | "Suspended";
+type Person = { id: string; name: string; handle: string; email: string; role: Role; teamLeadId: string | null; status: PersonStatus; payoutMethod: string; currency: string; payoutReady: boolean; payoutProvider: string | null; providerContactId: string | null; providerRecipientId: string | null; bankLast4: string | null; ifsc: string | null; legalName: string | null; portalStatus: PortalStatus; portalInvitedAt: string | null; portalLastSeenAt: string | null };
 type Entry = { id: string; personId: string | null; receiptId: string; receipt: string; date: string; name: string; handle: string; type: string; gross: number; payoutBps: number | null; ruleVersion: number };
 type Receipt = { id: string; filename: string; date: string; rows: number; total: number; status: "Verified" | "Needs review" | "Approved"; issues: string[] };
 type PaymentStatus = "Ready" | "Processing" | "Paid" | "Failed";
@@ -177,10 +178,16 @@ export default function ManagerApp() {
     notify("Person removed from Villix");
   }
 
-  async function connectRazorpayxBank(personId: string, input: { legalName: string; accountNumber: string; ifsc: string }) {
-    await api("/api/payees/razorpayx", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ personId, ...input }) });
+  async function invitePayeePortal(personId: string) {
+    await api("/api/payee-portal/access", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ personId }) });
     await refreshState();
-    notify("Indian bank beneficiary connected securely");
+    notify("Payee portal access enabled and sign-in code sent");
+  }
+
+  async function suspendPayeePortal(personId: string) {
+    await api("/api/payee-portal/access", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ personId }) });
+    await refreshState();
+    notify("Payee portal access suspended");
   }
 
   async function resolveReceiptHandle(receiptId: string, handle: string, personId: string) {
@@ -294,7 +301,7 @@ export default function ManagerApp() {
 
           {view === "overview" && <Overview totals={totals} openIssues={openIssues} receipts={receipts} payoutRows={payoutRows} setView={setView} />}
           {view === "inbox" && <Inbox receipts={receipts} entries={receiptEntries} people={people} approveReceipt={async (id) => { try { await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) }); await refreshState(); notify("Receipt approved"); } catch (error) { notify(error instanceof Error ? error.message : "Receipt could not be approved"); } }} deleteReceipt={deleteReceipt} reviewReceipt={setReviewReceipt} openImport={() => fileRef.current?.click()} />}
-          {view === "people" && <People people={people} entries={entries} query={query} setQuery={setQuery} updatePerson={updatePerson} editPerson={savePersonDetails} connectBank={connectRazorpayxBank} removePerson={removePerson} openAdd={() => setPersonModal(true)} />}
+          {view === "people" && <People people={people} entries={entries} query={query} setQuery={setQuery} updatePerson={updatePerson} editPerson={savePersonDetails} invitePortal={invitePayeePortal} suspendPortal={suspendPayeePortal} removePerson={removePerson} openAdd={() => setPersonModal(true)} />}
           {view === "teams" && <Teams people={people} entries={entries} updatePerson={updatePerson} />}
           {view === "payouts" && <Payouts totals={totals} rows={payoutRows} payoutDate={payoutDate} payoutDay={payoutDay} status={batchStatus} approve={approveBatch} openIssues={openIssues} snapshot={payoutSnapshot} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} adjustment={settlementAdjustment} setAdjustment={setSettlementAdjustment} />}
           {view === "reconciliation" && <Reconciliation rows={payoutRows} people={people} batchStatus={batchStatus} statuses={paymentStatuses} readyPayments={readyPayments} snapshot={payoutSnapshot} providerReadiness={providerReadiness} dispatch={dispatchBatch} sync={syncPayouts} />}
@@ -387,7 +394,7 @@ function ReceiptDetailModal({ receipt, entries, people, close }: { receipt: Rece
   </section></div>;
 }
 
-function People({ people, entries, query, setQuery, updatePerson, editPerson, connectBank, removePerson, openAdd }: { people: Person[]; entries: Entry[]; query: string; setQuery: (value: string) => void; updatePerson: (id: string, changes: Partial<Person>) => void; editPerson: (id: string, changes: Partial<Person>) => Promise<void>; connectBank: (id: string, input: { legalName: string; accountNumber: string; ifsc: string }) => Promise<void>; removePerson: (id: string) => Promise<void>; openAdd: () => void }) {
+function People({ people, entries, query, setQuery, updatePerson, editPerson, invitePortal, suspendPortal, removePerson, openAdd }: { people: Person[]; entries: Entry[]; query: string; setQuery: (value: string) => void; updatePerson: (id: string, changes: Partial<Person>) => void; editPerson: (id: string, changes: Partial<Person>) => Promise<void>; invitePortal: (id: string) => Promise<void>; suspendPortal: (id: string) => Promise<void>; removePerson: (id: string) => Promise<void>; openAdd: () => void }) {
   const [roleFilter, setRoleFilter] = useState<"All" | Role>("All");
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const leads = people.filter((person) => person.role === "Team lead");
@@ -396,11 +403,11 @@ function People({ people, entries, query, setQuery, updatePerson, editPerson, co
   return <div className="stack">
     <div className="command-row"><div className="search-field"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search people" aria-label="Search people" /></div><div className="command-actions"><select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as "All" | Role)}><option>All</option><option>Contributor</option><option>Team lead</option><option>Admin</option></select><button className="button primary" onClick={openAdd}>Add person</button></div></div>
     <section className="surface table-surface"><div className="data-table people-table"><div className="data-head"><span>Person</span><span>Role</span><span>Reports to</span><span>Payment route</span><span>Status</span><span></span></div>{visible.map((person) => <div className="data-row" key={person.id}><button className="identity-cell person-link" onClick={() => setSelectedPersonId(person.id)}><Avatar name={person.name}/><div><b>{person.name}</b><small>{person.handle} · {person.email}</small></div></button><select className="inline-select" value={person.role} onChange={(event) => updatePerson(person.id, { role: event.target.value as Role, teamLeadId: event.target.value === "Contributor" ? person.teamLeadId : null })}><option>Contributor</option><option>Team lead</option><option>Admin</option></select><div>{person.role === "Contributor" ? <select className="inline-select" value={person.teamLeadId || "direct"} onChange={(event) => updatePerson(person.id, { teamLeadId: event.target.value === "direct" ? null : event.target.value })}><option value="direct">No team lead</option>{leads.map((lead) => <option value={lead.id} key={lead.id}>{lead.name}</option>)}</select> : <span className="muted">—</span>}</div><span>{person.role === "Contributor" && person.teamLeadId ? "Via team lead" : person.payoutMethod}</span><Status value={person.status}/><div className="row-actions"><button className="profile-button" onClick={() => setSelectedPersonId(person.id)}>Profile</button><button onClick={() => updatePerson(person.id, { status: person.status === "Active" ? "Paused" : "Active" })}>{person.status === "Active" ? "Pause" : "Activate"}</button></div></div>)}</div>{!visible.length && <Empty title="No matching people" detail="Clear the search or add a new person." />}</section>
-    {selectedPerson && <PersonProfileModal person={selectedPerson} people={people} entries={entries} close={() => setSelectedPersonId(null)} edit={(changes) => editPerson(selectedPerson.id, changes)} connectBank={(input) => connectBank(selectedPerson.id, input)} remove={async () => { await removePerson(selectedPerson.id); setSelectedPersonId(null); }} />}
+    {selectedPerson && <PersonProfileModal person={selectedPerson} people={people} entries={entries} close={() => setSelectedPersonId(null)} edit={(changes) => editPerson(selectedPerson.id, changes)} invitePortal={() => invitePortal(selectedPerson.id)} suspendPortal={() => suspendPortal(selectedPerson.id)} remove={async () => { await removePerson(selectedPerson.id); setSelectedPersonId(null); }} />}
   </div>;
 }
 
-function PersonProfileModal({ person, people, entries, close, edit, connectBank, remove }: { person: Person; people: Person[]; entries: Entry[]; close: () => void; edit: (changes: Partial<Person>) => Promise<void>; connectBank: (input: { legalName: string; accountNumber: string; ifsc: string }) => Promise<void>; remove: () => Promise<void> }) {
+function PersonProfileModal({ person, people, entries, close, edit, invitePortal, suspendPortal, remove }: { person: Person; people: Person[]; entries: Entry[]; close: () => void; edit: (changes: Partial<Person>) => Promise<void>; invitePortal: () => Promise<void>; suspendPortal: () => Promise<void>; remove: () => Promise<void> }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState("");
@@ -408,8 +415,8 @@ function PersonProfileModal({ person, people, entries, close, edit, connectBank,
   const [editRole, setEditRole] = useState<Role>(person.role);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState("");
-  const [bankSaving, setBankSaving] = useState(false);
-  const [bankError, setBankError] = useState("");
+  const [portalSaving, setPortalSaving] = useState(false);
+  const [portalError, setPortalError] = useState("");
   const ownEntries = entries.filter((entry) => entry.personId === person.id || (!entry.personId && entry.handle.toLowerCase() === person.handle.toLowerCase()));
   const members = people.filter((candidate) => candidate.teamLeadId === person.id);
   const memberIds = new Set(members.map((member) => member.id));
@@ -457,20 +464,11 @@ function PersonProfileModal({ person, people, entries, close, edit, connectBank,
     finally { setSaving(false); }
   }
 
-  async function saveBank(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    setBankSaving(true); setBankError("");
-    try {
-      await connectBank({
-        legalName: String(data.get("legalName") ?? "").trim(),
-        accountNumber: String(data.get("accountNumber") ?? "").trim(),
-        ifsc: String(data.get("ifsc") ?? "").trim(),
-      });
-      form.reset();
-    } catch (error) { setBankError(error instanceof Error ? error.message : "The bank beneficiary could not be created."); }
-    finally { setBankSaving(false); }
+  async function changePortalAccess(action: "invite" | "suspend") {
+    setPortalSaving(true); setPortalError("");
+    try { await (action === "invite" ? invitePortal() : suspendPortal()); }
+    catch (error) { setPortalError(error instanceof Error ? error.message : "Payee portal access could not be updated."); }
+    finally { setPortalSaving(false); }
   }
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
@@ -485,8 +483,11 @@ function PersonProfileModal({ person, people, entries, close, edit, connectBank,
           <footer><button type="button" className="button secondary" onClick={() => { setEditing(false); setEditError(""); }}>Cancel</button><button type="submit" className="button primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button></footer>
         </form>}
         {canReceiveDirectly && <section className="edit-person-form payout-account-card">
-          <div className="edit-person-heading"><div><h3>Indian bank beneficiary</h3><p>{person.payoutReady ? `Connected account ending ${person.bankLast4 ?? "••••"}${person.ifsc ? ` · ${person.ifsc}` : ""}.` : "Bank details are sent directly to RazorpayX. Villix stores only the provider IDs, IFSC, and last four digits."}</p></div><Status value={person.payoutReady ? "Payout ready" : "Setup needed"}/></div>
-          {!person.payoutReady && <form onSubmit={(event) => void saveBank(event)} autoComplete="off"><div className="modal-grid"><label className="wide">Name on bank account<input name="legalName" required minLength={2} maxLength={120} defaultValue={person.legalName ?? person.name} autoComplete="off" /></label><label>Account number<input name="accountNumber" required inputMode="numeric" pattern="[0-9]{6,34}" autoComplete="off" placeholder="Indian bank account" /></label><label>IFSC code<input name="ifsc" required pattern="[A-Za-z]{4}0[A-Za-z0-9]{6}" maxLength={11} autoCapitalize="characters" autoComplete="off" placeholder="ABCD0123456" /></label></div>{bankError && <div className="review-error">{bankError}</div>}<footer><button type="submit" className="button primary" disabled={bankSaving}>{bankSaving ? "Connecting securely…" : "Create RazorpayX beneficiary"}</button></footer></form>}
+          <div className="edit-person-heading"><div><h3>Payee portal access</h3><p>{person.payoutReady ? `RazorpayX beneficiary connected${person.bankLast4 ? ` · account ending ${person.bankLast4}` : ""}.` : "The recipient signs in to a restricted Villix portal. When RazorpayX is activated, its hosted Vendor Portal will collect and verify bank details outside Villix."}</p></div><Status value={person.portalStatus}/></div>
+          <div className="portal-access-summary"><div><span>Recipient login</span><b>{person.email}</b></div><div><span>Last activity</span><b>{person.portalLastSeenAt ?? "Not signed in yet"}</b></div><div><span>Bank collection</span><b>{person.payoutReady ? "Completed" : "Test mode · unavailable"}</b></div></div>
+          <div className="portal-access-actions"><a className="button secondary" href="/payee" target="_blank" rel="noreferrer">Preview payee portal</a>{person.portalStatus !== "Not invited" && person.portalStatus !== "Suspended" && <button type="button" className="button secondary" disabled={portalSaving} onClick={() => void changePortalAccess("suspend")}>Suspend access</button>}<button type="button" className="button primary" disabled={portalSaving} onClick={() => void changePortalAccess("invite")}>{portalSaving ? "Updating…" : person.portalStatus === "Not invited" ? "Invite recipient" : person.portalStatus === "Suspended" ? "Re-enable & send code" : "Resend sign-in code"}</button></div>
+          {portalError && <div className="review-error">{portalError}</div>}
+          <div className="profile-data-note">Villix never asks an administrator to type a recipient’s account number. Provider-hosted onboarding will be enabled only after the production RazorpayX account is approved.</div>
         </section>}
         <section className="profile-metrics">
           <div><span>Submissions</span><strong>{ownEntries.length}</strong><small>Verified entries</small></div>
@@ -729,7 +730,7 @@ function PersonModal({ leads, close, add }: { leads: Person[]; close: () => void
   const [role, setRole] = useState<Role>("Contributor");
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const data = new FormData(event.currentTarget); const handle = String(data.get("handle") || "").trim();
-    add({ id: crypto.randomUUID(), name: String(data.get("name") || "").trim(), handle: handle.startsWith("@") ? handle : `@${handle}`, email: String(data.get("email") || "").trim(), role, teamLeadId: role === "Contributor" && data.get("teamLead") !== "direct" ? String(data.get("teamLead")) : null, status: "Active", payoutMethod: role === "Contributor" ? "Contractor account" : role === "Team lead" ? "Team payout account" : "Not applicable", currency: "INR", payoutReady: false, payoutProvider: null, providerContactId: null, providerRecipientId: null, bankLast4: null, ifsc: null, legalName: String(data.get("name") || "").trim() });
+    add({ id: crypto.randomUUID(), name: String(data.get("name") || "").trim(), handle: handle.startsWith("@") ? handle : `@${handle}`, email: String(data.get("email") || "").trim(), role, teamLeadId: role === "Contributor" && data.get("teamLead") !== "direct" ? String(data.get("teamLead")) : null, status: "Active", payoutMethod: role === "Contributor" ? "Contractor account" : role === "Team lead" ? "Team payout account" : "Not applicable", currency: "INR", payoutReady: false, payoutProvider: null, providerContactId: null, providerRecipientId: null, bankLast4: null, ifsc: null, legalName: String(data.get("name") || "").trim(), portalStatus: "Not invited", portalInvitedAt: null, portalLastSeenAt: null });
   }
       return <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="add-person-title"><header><div><span>Directory</span><h2 id="add-person-title">Add person</h2></div><button onClick={close} aria-label="Close">×</button></header><form onSubmit={submit}><div className="modal-grid"><label>Full name<input name="name" required placeholder="Jordan Lee" /></label><label>Receipt handle<input name="handle" required placeholder="@jordan" /></label><label className="wide">Email address<input type="email" name="email" required placeholder="jordan@villix.co" /></label><label>Role<select value={role} onChange={(event) => setRole(event.target.value as Role)}><option>Contributor</option><option>Team lead</option><option>Admin</option></select></label><label>Currency<input value="INR" disabled /></label>{role === "Contributor" && <label>Team lead<select name="teamLead" defaultValue="direct"><option value="direct">No team lead · Direct</option>{leads.map((lead) => <option value={lead.id} key={lead.id}>{lead.name}</option>)}</select></label>}</div><div className="modal-note"><span>i</span>Villix pays only verified Indian bank accounts in INR through RazorpayX.</div><footer><button type="button" className="button secondary" onClick={close}>Cancel</button><button className="button primary" type="submit">Add person</button></footer></form></section></div>;
 }
