@@ -170,6 +170,11 @@ export default function ManagerApp() {
     await resolveReceiptHandle(receiptId, handle, created.id);
   }
 
+  async function deleteReceipt(receiptId: string) {
+    await api("/api/receipts", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: receiptId }) });
+    setReviewReceipt(null); await refreshState(); notify("Receipt and document deleted");
+  }
+
   async function mutateRules(method: "POST" | "PATCH" | "DELETE", body: Record<string, unknown>, successMessage: string) {
     try {
       await api("/api/rules", { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -240,7 +245,7 @@ export default function ManagerApp() {
           {parseError && <div className="alert error-alert"><span>!</span><div><b>Receipt not added</b><p>{parseError}</p></div><button onClick={() => setParseError("")}>Dismiss</button></div>}
 
           {view === "overview" && <Overview totals={totals} openIssues={openIssues} receipts={receipts} payoutRows={payoutRows} payoutDate={payoutDate} setView={setView} />}
-          {view === "inbox" && <Inbox receipts={receipts} approveReceipt={async (id) => { try { await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) }); await refreshState(); notify("Receipt approved"); } catch (error) { notify(error instanceof Error ? error.message : "Receipt could not be approved"); } }} reviewReceipt={setReviewReceipt} openImport={() => fileRef.current?.click()} />}
+          {view === "inbox" && <Inbox receipts={receipts} approveReceipt={async (id) => { try { await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) }); await refreshState(); notify("Receipt approved"); } catch (error) { notify(error instanceof Error ? error.message : "Receipt could not be approved"); } }} deleteReceipt={deleteReceipt} reviewReceipt={setReviewReceipt} openImport={() => fileRef.current?.click()} />}
           {view === "people" && <People people={people} query={query} setQuery={setQuery} updatePerson={updatePerson} openAdd={() => setPersonModal(true)} />}
           {view === "teams" && <Teams people={people} entries={entries} updatePerson={updatePerson} />}
           {view === "payouts" && <Payouts totals={totals} rows={payoutRows} payoutDate={payoutDate} setPayoutDate={setPayoutDate} status={batchStatus} approve={approveBatch} openIssues={openIssues} />}
@@ -287,12 +292,20 @@ function Overview({ totals, openIssues, receipts, payoutRows, payoutDate, setVie
 function Stat({ label, value, note }: { label: string; value: string; note: string }) { return <div className="stat"><span>{label}</span><strong>{value}</strong><small>{note}</small></div>; }
 function Avatar({ name, large = false }: { name: string; large?: boolean }) { return <span className={`person-avatar ${large ? "large" : ""}`}>{initials(name)}</span>; }
 
-function Inbox({ receipts, approveReceipt, reviewReceipt, openImport }: { receipts: Receipt[]; approveReceipt: (id: string) => Promise<void>; reviewReceipt: (receipt: Receipt) => void; openImport: () => void }) {
+function Inbox({ receipts, approveReceipt, deleteReceipt, reviewReceipt, openImport }: { receipts: Receipt[]; approveReceipt: (id: string) => Promise<void>; deleteReceipt: (id: string) => Promise<void>; reviewReceipt: (receipt: Receipt) => void; openImport: () => void }) {
   const [filter, setFilter] = useState<"All" | Receipt["status"]>("All");
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const visible = receipts.filter((receipt) => filter === "All" || receipt.status === filter);
+  async function remove(receipt: Receipt) {
+    if (confirmDelete !== receipt.id) { setConfirmDelete(receipt.id); return; }
+    setDeleting(receipt.id);
+    try { await deleteReceipt(receipt.id); }
+    finally { setDeleting(null); setConfirmDelete(null); }
+  }
   return <div className="stack">
     <div className="command-row"><div className="segmented">{(["All", "Needs review", "Verified", "Approved"] as const).map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}</button>)}</div><button className="button primary" onClick={openImport}>Import PDF</button></div>
-    <section className="surface table-surface"><div className="data-table inbox-table"><div className="data-head"><span>Receipt</span><span>Date</span><span>Entries</span><span>Total</span><span>Status</span><span></span></div>{visible.map((receipt) => <div className="data-row" key={receipt.id}><div className="file-cell"><i>PDF</i><div><b>{receipt.filename}</b><small>{receipt.issues.length ? receipt.issues.join(" · ") : "Source total verified"}</small></div></div><span>{receipt.date}</span><span>{receipt.rows}</span><strong>{money.format(receipt.total)}</strong><Status value={receipt.status}/><div className="row-actions">{receipt.status !== "Approved" && (receipt.issues.length ? <button className="resolve-button" onClick={() => reviewReceipt(receipt)}>Resolve</button> : <button onClick={() => void approveReceipt(receipt.id)}>Approve</button>)}<button aria-label="More receipt actions">•••</button></div></div>)}</div>{!visible.length && <Empty title="No receipts here" detail="Try a different status or import another PDF." />}</section>
+    <section className="surface table-surface"><div className="data-table inbox-table"><div className="data-head"><span>Receipt</span><span>Date</span><span>Entries</span><span>Total</span><span>Status</span><span></span></div>{visible.map((receipt) => <div className="data-row" key={receipt.id}><div className="file-cell"><i>PDF</i><div><b>{receipt.filename}</b><small>{receipt.issues.length ? receipt.issues.join(" · ") : "Source total verified"}</small></div></div><span>{receipt.date}</span><span>{receipt.rows}</span><strong>{money.format(receipt.total)}</strong><Status value={receipt.status}/><div className="row-actions">{receipt.status !== "Approved" && <>{receipt.issues.length ? <button className="resolve-button" onClick={() => reviewReceipt(receipt)}>Resolve</button> : <button onClick={() => void approveReceipt(receipt.id)}>Approve</button>}<button className={`delete-receipt-button ${confirmDelete === receipt.id ? "confirm" : ""}`} disabled={deleting === receipt.id} onClick={() => void remove(receipt)}>{deleting === receipt.id ? "Deleting…" : confirmDelete === receipt.id ? "Confirm delete" : "Delete"}</button></>}</div></div>)}</div>{!visible.length && <Empty title="No receipts here" detail="Try a different status or import another PDF." />}</section>
     <div className="safety-note"><span>✓</span><div><b>Duplicate protection is active</b><p>File fingerprints and source totals are checked before a receipt can enter the ledger.</p></div></div>
   </div>;
 }

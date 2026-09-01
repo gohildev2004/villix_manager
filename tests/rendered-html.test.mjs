@@ -48,9 +48,13 @@ test("parses, reviews, and validates receipt PDFs on the trusted server", async 
   assert.ok(receiptParser.includes("Member\\s+Type\\s+Amount"));
   assert.match(receiptRoute, /contribution_entries"\)\.delete\(\)\.eq\("receipt_id", receiptId\)/);
   assert.match(receiptRoute, /action === "resolve_handle"/);
+  assert.match(receiptRoute, /export async function DELETE/);
+  assert.match(receiptRoute, /Approved receipts are locked and cannot be deleted/);
+  assert.match(receiptRoute, /receipt-files"\)\.remove/);
   assert.match(receiptReview, /Unmatched handle/);
   assert.match(receiptReview, /nextStatus = issues\.size \? "review" : "verified"/);
   assert.match(managerApp, /Create and match/);
+  assert.match(managerApp, /Confirm delete/);
   assert.match(nextConfig, /serverExternalPackages: \["pdfjs-dist"\]/);
   assert.match(nextConfig, /outputFileTracingIncludes/);
   assert.match(nextConfig, /pdfjs-dist\/legacy\/build\/pdf\.worker\.mjs/);

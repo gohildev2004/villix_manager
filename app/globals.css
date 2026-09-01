@@ -373,6 +373,8 @@ h1 { margin: 0; font-size: clamp(29px, 3.1vw, 43px); line-height: 1.03; letter-s
 .resolution-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .review-error { margin-top: 13px; padding: 10px 12px; border-radius: 9px; color: #9b302a; background: #fff0ee; font-size: 10px; }
 .resolve-button { color: #fff !important; background: var(--blue) !important; border-color: var(--blue) !important; }
+.delete-receipt-button { color: #9b302a !important; }
+.delete-receipt-button.confirm { color: #fff !important; background: #c73c32 !important; border-color: #c73c32 !important; }
 .toast { position: fixed; left: 50%; bottom: 28px; z-index: 120; transform: translateX(-50%); padding: 10px 14px; border-radius: 20px; background: rgba(29,29,31,.92); backdrop-filter: blur(15px); color: #fff; box-shadow: 0 10px 35px rgba(0,0,0,.2); display: flex; align-items: center; gap: 8px; font-size: 9px; animation: toast-in .25s ease-out; }
 .toast span { color: #68d17d; }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%,8px); } }

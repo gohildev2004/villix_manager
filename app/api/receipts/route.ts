@@ -173,3 +173,50 @@ export async function PATCH(request: Request) {
     return errorResponse(error);
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const { actor, supabase } = await requireAdmin();
+    if (actor.role === "reviewer") return Response.json({ error: "Only an administrator can delete a receipt." }, { status: 403 });
+    const body = await request.json() as { id?: string };
+    const receiptId = String(body.id ?? "");
+    if (!receiptId) throw new ReceiptValidationError("Receipt ID is required.");
+
+    const [{ data: receipt, error: receiptError }, { data: entries, error: entriesError }] = await Promise.all([
+      supabase.from("receipts").select("*").eq("id", receiptId).maybeSingle(),
+      supabase.from("contribution_entries").select("*").eq("receipt_id", receiptId),
+    ]);
+    if (receiptError) throw receiptError;
+    if (entriesError) throw entriesError;
+    if (!receipt) return Response.json({ error: "Receipt not found." }, { status: 404 });
+    if (receipt.status === "approved") return Response.json({ error: "Approved receipts are locked and cannot be deleted." }, { status: 409 });
+
+    const { error: deleteEntriesError } = await supabase.from("contribution_entries").delete().eq("receipt_id", receiptId);
+    if (deleteEntriesError) throw deleteEntriesError;
+    const { error: deleteReceiptError } = await supabase.from("receipts").delete().eq("id", receiptId);
+    if (deleteReceiptError) {
+      const { error: restoreEntriesError } = await supabase.from("contribution_entries").insert(entries ?? []);
+      if (restoreEntriesError) console.error("Could not restore receipt entries after a failed delete", restoreEntriesError);
+      throw deleteReceiptError;
+    }
+
+    const { error: storageError } = await supabase.storage.from("receipt-files").remove([receipt.storage_path]);
+    if (storageError) {
+      const { error: restoreReceiptError } = await supabase.from("receipts").insert(receipt);
+      const { error: restoreEntriesError } = restoreReceiptError ? { error: null } : await supabase.from("contribution_entries").insert(entries ?? []);
+      if (restoreReceiptError) console.error("Could not restore receipt after file deletion failed", restoreReceiptError);
+      if (restoreEntriesError) console.error("Could not restore receipt entries after file deletion failed", restoreEntriesError);
+      throw storageError;
+    }
+
+    try {
+      await addAudit(supabase, actor, "receipt.deleted", "receipt", receiptId, `${receipt.filename} deleted`, `${entries?.length ?? 0} contribution rows and the private PDF were removed.`, "warning");
+    } catch (auditError) {
+      console.error("Receipt deletion audit could not be recorded", auditError);
+    }
+    return Response.json({ ok: true });
+  } catch (error) {
+    if (error instanceof ReceiptValidationError) return Response.json({ error: error.message }, { status: 400 });
+    return errorResponse(error);
+  }
+}
