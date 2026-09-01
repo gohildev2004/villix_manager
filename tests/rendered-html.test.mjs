@@ -85,6 +85,10 @@ test("ships isolated staging, CI, behavioral rules, and private operational moni
   assert.match(managerApp, /view === "health" && <SystemHealth/);
   assert.match(managerApp, /monitoring\.checks\.some\(\(check\) => check\.status !== "healthy"\)/);
   assert.match(managerApp, /View system health/);
+  assert.match(managerApp, /How to fix this/);
+  assert.match(managerApp, /Run checks again/);
+  assert.match(managerApp, /healthRunbooks/);
+  assert.match(managerApp, /retrying prematurely could create duplicate payment attempts/);
   assert.match(render, /healthCheckPath: \/api\/health\/ready/);
 });
 

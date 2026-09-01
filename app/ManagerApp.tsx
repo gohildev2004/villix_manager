@@ -22,7 +22,9 @@ type RuleInput = Omit<ContributionRule, "version">;
 type PayoutSnapshot = { id: string; exchangeRate: number; adjustmentBps: number; grossInr: number; retainedInr: number; payableInr: number; provider: string; recipients: Array<{ personId: string; status: string; currency: string; amount: number; provider: string | null }> };
 type ProviderReadiness = { razorpayxConfigured: boolean; webhookConfigured: boolean; payoutsLive: boolean };
 type HealthCheckStatus = "healthy" | "warning" | "error";
-type OperationalHealth = { status: HealthCheckStatus; environment: string; checkedAt: string; checks: Array<{ id: string; label: string; status: HealthCheckStatus; detail: string }>; counts: { receiptsNeedingReview: number; stuckPayouts: number; failedTransfers: number; failedWebhooks: number }; lastWebhookAt: string | null };
+type OperationalHealthCheck = { id: string; label: string; status: HealthCheckStatus; detail: string };
+type OperationalHealth = { status: HealthCheckStatus; environment: string; checkedAt: string; checks: OperationalHealthCheck[]; counts: { receiptsNeedingReview: number; stuckPayouts: number; failedTransfers: number; failedWebhooks: number }; lastWebhookAt: string | null };
+type HealthRunbook = { monitors: string; impact: string; steps: string[]; action?: { label: string; view: View } };
 type ServerState = { people: Person[]; entries: Entry[]; receiptEntries: Entry[]; receipts: Receipt[]; audit: AuditEvent[]; batchStatus: "Draft" | "Approved"; payoutDate: string; payoutDay: PayoutWeekday; paymentStatuses: Record<string, PaymentStatus>; payoutSnapshot: PayoutSnapshot | null; providerReadiness: ProviderReadiness; ruleVersions: RuleVersion[]; rules: ContributionRule[]; actor: { name: string; email: string; role: string }; persistence: string };
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -35,6 +37,16 @@ const initialReceipts: Receipt[] = [];
 const initialAudit: AuditEvent[] = [];
 const initialHealth: OperationalHealth = { status: "warning", environment: "loading", checkedAt: "", checks: [], counts: { receiptsNeedingReview: 0, stuckPayouts: 0, failedTransfers: 0, failedWebhooks: 0 }, lastWebhookAt: null };
 const unavailableHealth: OperationalHealth = { ...initialHealth, status: "error", environment: "unknown", checks: [{ id: "monitoring", label: "Operational monitoring", status: "error", detail: "The private monitoring service could not be reached." }] };
+const healthRunbooks: Record<string, HealthRunbook> = {
+  database: { monitors: "Confirms the application can read Villix workspace data from Supabase.", impact: "People, receipts, rules, and payouts may not load or save while this check is failing.", steps: ["Open the Supabase project and confirm it is healthy and not paused.", "In Render, verify NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY belong to the same Villix project.", "Review the latest Render and Supabase database logs for authentication, network, or policy errors.", "Correct the configuration, redeploy the service, then run the checks again."], action: { label: "Open settings", view: "settings" } },
+  storage: { monitors: "Confirms the private Supabase bucket used for source receipt PDFs is available.", impact: "New receipts cannot be stored reliably, so imports should remain paused.", steps: ["Open Supabase Storage and confirm the receipt-files bucket exists and is private.", "Check the bucket policies and confirm the server secret can list and upload files.", "Confirm the app is connected to the intended Supabase project, not staging or another workspace.", "Repair the bucket or policy, then import a test PDF and run the checks again."], action: { label: "Open inbox", view: "inbox" } },
+  configuration: { monitors: "Checks required server-only values and, when live payouts are enabled, RazorpayX credentials.", impact: "Imports, authentication, or payout operations may be unavailable. Live payouts must remain locked.", steps: ["Open Render → Environment for the active Villix service.", "Confirm the Supabase URL, publishable key, and SUPABASE_SECRET_KEY are present without exposing them in screenshots.", "If live payouts are enabled, also confirm the RazorpayX key, secret, account number, and webhook secret.", "Save the variables, redeploy, and run the checks again. Never put a server secret in a NEXT_PUBLIC_ variable."], action: { label: "Open settings", view: "settings" } },
+  receipts: { monitors: "Counts receipts with unmatched people, unknown types, source mismatches, or other review issues.", impact: "Affected receipt entries are excluded from payout approval until an administrator resolves them.", steps: ["Open Inbox and select the receipt marked Needs review.", "Match every imported handle to the correct contributor or create the missing person.", "Resolve unknown contribution types and verify the extracted rows equal the printed total.", "Approve the receipt only after every issue is cleared; otherwise delete it and import a corrected PDF."], action: { label: "Review receipts", view: "inbox" } },
+  payouts: { monitors: "Finds approved payout batches that have remained in processing for more than 30 minutes.", impact: "Recipients may be waiting, but retrying prematurely could create duplicate payment attempts.", steps: ["Keep the weekly payout locked and open Reconciliation.", "Check whether RazorpayX received the batch and compare provider references with Villix records.", "Run status sync before attempting any retry.", "If the provider has no payment, inspect Render logs and retry only after the existing idempotent attempt is confirmed safe."], action: { label: "Open reconciliation", view: "reconciliation" } },
+  transfers: { monitors: "Detects failed recipient transfers and transfer attempts still processing after 30 minutes.", impact: "One or more final recipients may not have received their weekly payment.", steps: ["Open Reconciliation and identify each affected recipient and provider reference.", "Verify the recipient completed bank onboarding and that the beneficiary is active in RazorpayX.", "Sync provider status to capture a late success before retrying.", "Correct the beneficiary or provider issue, then retry only the failed transfer using its protected idempotency flow."], action: { label: "Review transfers", view: "reconciliation" } },
+  webhooks: { monitors: "Checks recent RazorpayX webhook delivery and whether received events were processed successfully.", impact: "Provider payments may succeed while Villix continues showing an outdated status.", steps: ["Open RazorpayX webhook settings and confirm the Villix webhook endpoint is enabled.", "Verify the Render RAZORPAYX_WEBHOOK_SECRET matches the current provider secret.", "Review failed delivery responses and the matching Render logs.", "Replay the failed event from RazorpayX, sync payouts, and run the checks again."], action: { label: "Open reconciliation", view: "reconciliation" } },
+  monitoring: { monitors: "Confirms the authenticated admin monitoring endpoint can complete its operational checks.", impact: "The underlying systems may still work, but Villix cannot currently prove their health.", steps: ["Refresh the page and sign in again if the session expired.", "Open /api/health/ready and confirm the database-backed readiness check responds.", "Review Render logs for /api/monitoring errors.", "Verify the Supabase server secret and admin access, redeploy if changed, then run the checks again."], action: { label: "Open settings", view: "settings" } },
+};
 
 const viewCopy: Record<View, { eyebrow: string; title: string; subtitle: string }> = {
   overview: { eyebrow: "Operations", title: "Good morning.", subtitle: "Everything requiring attention is collected here." },
@@ -329,7 +341,7 @@ export default function ManagerApp() {
           {view === "reconciliation" && <Reconciliation rows={payoutRows} people={people} batchStatus={batchStatus} statuses={paymentStatuses} readyPayments={readyPayments} snapshot={payoutSnapshot} providerReadiness={providerReadiness} dispatch={dispatchBatch} sync={syncPayouts} />}
           {view === "audit" && <Audit events={audit} />}
           {view === "rules" && <Rules versions={ruleVersions} rules={rules} mutate={mutateRules} />}
-          {view === "health" && <SystemHealth monitoring={operationalHealth} />}
+          {view === "health" && <SystemHealth monitoring={operationalHealth} refresh={refreshState} openView={setView} />}
           {view === "settings" && <Settings saved={settingsSaved} payoutDay={payoutDay} setPayoutDay={(day) => { setPayoutDay(day); setPayoutDate(scheduledPayoutDate(activePayoutPeriod.end, day)); }} save={saveSettings} />}
         </div>
       </main>
@@ -378,14 +390,33 @@ function SystemHealthAlert({ monitoring, openHealth }: { monitoring: Operational
   </section>;
 }
 
-function SystemHealth({ monitoring }: { monitoring: OperationalHealth }) {
+function SystemHealth({ monitoring, refresh, openView }: { monitoring: OperationalHealth; refresh: () => Promise<void>; openView: (view: View) => void }) {
   const checked = monitoring.checkedAt ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(monitoring.checkedAt)) : "Checking now";
+  const issues = monitoring.checks.filter((check) => check.status !== "healthy");
   return <section className="surface system-health-card">
-    <div className="section-header"><div><h2>System health</h2><p>Private operational checks for imports, storage, payouts, and provider events.</p></div><div className={`health-overall ${monitoring.status}`}><span></span>{monitoring.status === "healthy" ? "All systems healthy" : monitoring.status === "error" ? "Action required" : "Review warnings"}</div></div>
-    <div className="health-grid">{monitoring.checks.map((check) => <div className={`health-check ${check.status}`} key={check.id}><span className="health-dot"></span><div><b>{check.label}</b><p>{check.detail}</p></div></div>)}</div>
+    <div className="section-header health-page-heading"><div><h2>{monitoring.status === "healthy" ? "Everything is operating normally" : `${issues.length} check${issues.length === 1 ? "" : "s"} need attention`}</h2><p>Each check includes a recovery runbook. Resolve red items before importing or approving payouts.</p></div><div className="health-heading-actions"><div className={`health-overall ${monitoring.status}`}><span></span>{monitoring.status === "healthy" ? "All systems healthy" : monitoring.status === "error" ? "Action required" : "Review warnings"}</div><button className="health-refresh" onClick={() => void refresh()}>Run checks again</button></div></div>
+    <div className="health-status-summary">
+      <div><span>Checks</span><b>{monitoring.checks.length}</b></div>
+      <div><span>Healthy</span><b>{monitoring.checks.filter((check) => check.status === "healthy").length}</b></div>
+      <div><span>Warnings</span><b>{monitoring.checks.filter((check) => check.status === "warning").length}</b></div>
+      <div><span>Errors</span><b>{monitoring.checks.filter((check) => check.status === "error").length}</b></div>
+    </div>
+    <div className="health-runbook-list">{monitoring.checks.map((check) => <HealthCheckCard check={check} openView={openView} key={check.id} />)}</div>
     {!monitoring.checks.length && <Empty title="Monitoring is connecting" detail="Operational checks will appear after the private monitoring endpoint responds." />}
     <div className="health-footer"><span>Environment: <b>{monitoring.environment}</b></span><span>Last checked: <b>{checked}</b></span>{monitoring.lastWebhookAt && <span>Last webhook: <b>{new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(monitoring.lastWebhookAt))}</b></span>}</div>
   </section>;
+}
+
+function HealthCheckCard({ check, openView }: { check: OperationalHealthCheck; openView: (view: View) => void }) {
+  const runbook = healthRunbooks[check.id] ?? { monitors: "Checks a private Villix operational dependency.", impact: "The affected workflow may be unavailable until this check recovers.", steps: ["Review the latest Render logs.", "Confirm the related service configuration.", "Correct the issue and run the checks again."] };
+  return <article className={`health-runbook ${check.status}`}>
+    <div className="health-runbook-status"><span className="health-dot"></span><div className="grow"><div className="health-runbook-title"><h3>{check.label}</h3><span>{check.status}</span></div><p>{check.detail}</p></div></div>
+    <div className="health-runbook-context"><div><span>What this checks</span><p>{runbook.monitors}</p></div><div><span>If it fails</span><p>{runbook.impact}</p></div></div>
+    <details open={check.status !== "healthy"}>
+      <summary>{check.status === "healthy" ? "View recovery steps" : "How to fix this"}<span>⌄</span></summary>
+      <div className="health-recovery"><ol>{runbook.steps.map((step) => <li key={step}>{step}</li>)}</ol>{runbook.action && <button onClick={() => openView(runbook.action!.view)}>{runbook.action.label} →</button>}</div>
+    </details>
+  </article>;
 }
 
 function RecipientOnboarding({ people, invitePortals, openPeople }: { people: Person[]; invitePortals: (ids: string[]) => Promise<string>; openPeople: () => void }) {
