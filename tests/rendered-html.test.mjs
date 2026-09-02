@@ -148,7 +148,7 @@ test("shows receipt breakdowns and enforces the weekly payout schedule", async (
 });
 
 test("locks INR payout snapshots and dispatches only ready recipients", async () => {
-  const [managerApp, payoutRoute, dispatchRoute, stateRoute, provider, migration, holdMigration, renderConfig] = await Promise.all([
+  const [managerApp, payoutRoute, dispatchRoute, stateRoute, provider, migration, holdMigration, holdBackfill, renderConfig] = await Promise.all([
     readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/payouts/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/payouts/dispatch/route.ts", import.meta.url), "utf8"),
@@ -156,6 +156,7 @@ test("locks INR payout snapshots and dispatches only ready recipients", async ()
     readFile(new URL("../lib/razorpayx.ts", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/20260901015829_multi_currency_payout_snapshots.sql", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/20260902013603_recipient_level_payout_holds.sql", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260902014700_backfill_recipient_level_payout_holds.sql", import.meta.url), "utf8"),
     readFile(new URL("../render.yaml", import.meta.url), "utf8"),
   ]);
   assert.match(managerApp, /INR settlement/);
@@ -191,6 +192,8 @@ test("locks INR payout snapshots and dispatches only ready recipients", async ()
   assert.match(holdMigration, /'ready', 'held', 'processing', 'paid', 'failed', 'cancelled'/);
   assert.match(holdMigration, /hold_reason/);
   assert.match(holdMigration, /idx_payout_recipients_batch_outstanding/);
+  assert.match(holdBackfill, /recipient\.status = 'ready'/);
+  assert.match(holdBackfill, /profile\.onboarding_status is distinct from 'ready'/);
   assert.match(stateRoute, /item\.status === "held" \? "On hold"/);
   assert.match(managerApp, /Ready recipients can still be paid/);
   assert.match(managerApp, /Retry failed/);
