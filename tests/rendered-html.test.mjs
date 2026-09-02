@@ -263,3 +263,31 @@ test("prepares a restricted payee portal, hosted onboarding handoff, and payout 
   assert.match(renderConfig, /RAZORPAYX_VENDOR_PORTAL_ENABLED/);
   assert.match(renderConfig, /RAZORPAYX_DIRECT_BANK_FORM_ENABLED/);
 });
+
+test("reviews and sends private contributor invitations from the trusted server", async () => {
+  const [managerApp, invitationRoute, invitationEmail, operationalHealth, production, staging] = await Promise.all([
+    readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/payee-portal/invitations/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/invitation-email.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/operational-health.ts", import.meta.url), "utf8"),
+    readFile(new URL("../render.yaml", import.meta.url), "utf8"),
+    readFile(new URL("../render.staging.yaml", import.meta.url), "utf8"),
+  ]);
+  assert.match(managerApp, /Review invitation/);
+  assert.match(managerApp, /defaultInvitationSubject/);
+  assert.match(managerApp, /defaultInvitationMessage/);
+  assert.match(managerApp, /\{\{name\}\}/);
+  assert.match(managerApp, /\{\{portal_url\}\}/);
+  assert.match(managerApp, /Each person receives a separate private email/);
+  assert.match(invitationRoute, /requireAdmin/);
+  assert.match(invitationRoute, /personIds\.length > 25/);
+  assert.match(invitationRoute, /payee_portal_accounts\(status\)/);
+  assert.match(invitationRoute, /payee\.invitation_emailed/);
+  assert.match(invitationEmail, /nodemailer\.createTransport/);
+  assert.match(invitationEmail, /to: \{ name: recipient\.name, address: recipient\.email \}/);
+  assert.doesNotMatch(invitationEmail, /bcc/i);
+  assert.doesNotMatch(invitationEmail, /NEXT_PUBLIC_.*SMTP/);
+  assert.match(production, /INVITATION_SMTP_PASSWORD[\s\S]*sync: false/);
+  assert.match(staging, /INVITATION_SMTP_PASSWORD[\s\S]*sync: false/);
+  assert.match(operationalHealth, /Invitation email/);
+});

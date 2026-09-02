@@ -33,6 +33,18 @@ services:
         value: https://contributor.villix.in
       - key: NEXT_PUBLIC_CONTRIBUTOR_PORTAL_URL
         value: https://contributor.villix.in
+      - key: INVITATION_SMTP_HOST
+        value: smtp.gmail.com
+      - key: INVITATION_SMTP_PORT
+        value: "465"
+      - key: INVITATION_SMTP_USER
+        sync: false
+      - key: INVITATION_SMTP_PASSWORD
+        sync: false
+      - key: INVITATION_FROM_EMAIL
+        sync: false
+      - key: INVITATION_FROM_NAME
+        value: Villix
       - key: RAZORPAYX_VENDOR_PORTAL_ENABLED
         value: "false"
       - key: RAZORPAYX_VENDOR_PORTAL_URL

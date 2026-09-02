@@ -23,6 +23,18 @@ services:
         value: https://villix-manager-staging.onrender.com/payee
       - key: NEXT_PUBLIC_CONTRIBUTOR_PORTAL_URL
         value: https://villix-manager-staging.onrender.com/payee
+      - key: INVITATION_SMTP_HOST
+        value: smtp.gmail.com
+      - key: INVITATION_SMTP_PORT
+        value: "465"
+      - key: INVITATION_SMTP_USER
+        sync: false
+      - key: INVITATION_SMTP_PASSWORD
+        sync: false
+      - key: INVITATION_FROM_EMAIL
+        sync: false
+      - key: INVITATION_FROM_NAME
+        value: Villix
       - key: RAZORPAYX_KEY_ID
         sync: false
       - key: RAZORPAYX_KEY_SECRET

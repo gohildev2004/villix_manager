@@ -25,11 +25,25 @@ type HealthCheckStatus = "healthy" | "warning" | "error";
 type OperationalHealthCheck = { id: string; label: string; status: HealthCheckStatus; detail: string };
 type OperationalHealth = { status: HealthCheckStatus; environment: string; checkedAt: string; checks: OperationalHealthCheck[]; counts: { receiptsNeedingReview: number; stuckPayouts: number; failedTransfers: number; failedWebhooks: number }; lastWebhookAt: string | null };
 type HealthRunbook = { monitors: string; impact: string; steps: string[]; action?: { label: string; view: View } };
+type InvitationResult = { ok: boolean; sent: number; failed: number; failedPersonIds: string[] };
 type ServerState = { people: Person[]; entries: Entry[]; receiptEntries: Entry[]; receipts: Receipt[]; audit: AuditEvent[]; batchStatus: "Draft" | "Approved"; payoutDate: string; payoutDay: PayoutWeekday; paymentStatuses: Record<string, PaymentStatus>; payoutSnapshot: PayoutSnapshot | null; providerReadiness: ProviderReadiness; ruleVersions: RuleVersion[]; rules: ContributionRule[]; actor: { name: string; email: string; role: string }; persistence: string };
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
 const contributorPortalUrl = process.env.NEXT_PUBLIC_CONTRIBUTOR_PORTAL_URL || "https://contributor.villix.in";
+const defaultInvitationSubject = "Complete your Villix contributor profile";
+const defaultInvitationMessage = `Hi {{name}},
+
+Your Villix contributor profile is ready.
+
+Open {{portal_url}} and sign in using this email address. Villix will send you a one-time verification code so you can securely access your profile.
+
+Please complete your payout profile when bank onboarding becomes available.
+
+If you were not expecting this invitation, please contact Villix.
+
+Regards,
+Villix`;
 
 const initialPeople: Person[] = [];
 const initialEntries: Entry[] = [];
@@ -41,6 +55,7 @@ const healthRunbooks: Record<string, HealthRunbook> = {
   database: { monitors: "Confirms the application can read Villix workspace data from Supabase.", impact: "People, receipts, rules, and payouts may not load or save while this check is failing.", steps: ["Open the Supabase project and confirm it is healthy and not paused.", "In Render, verify NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY belong to the same Villix project.", "Review the latest Render and Supabase database logs for authentication, network, or policy errors.", "Correct the configuration, redeploy the service, then run the checks again."], action: { label: "Open settings", view: "settings" } },
   storage: { monitors: "Confirms the private Supabase bucket used for source receipt PDFs is available.", impact: "New receipts cannot be stored reliably, so imports should remain paused.", steps: ["Open Supabase Storage and confirm the receipt-files bucket exists and is private.", "Check the bucket policies and confirm the server secret can list and upload files.", "Confirm the app is connected to the intended Supabase project, not staging or another workspace.", "Repair the bucket or policy, then import a test PDF and run the checks again."], action: { label: "Open inbox", view: "inbox" } },
   configuration: { monitors: "Checks required server-only values and, when live payouts are enabled, RazorpayX credentials.", impact: "Imports, authentication, or payout operations may be unavailable. Live payouts must remain locked.", steps: ["Open Render → Environment for the active Villix service.", "Confirm the Supabase URL, publishable key, and SUPABASE_SECRET_KEY are present without exposing them in screenshots.", "If live payouts are enabled, also confirm the RazorpayX key, secret, account number, and webhook secret.", "Save the variables, redeploy, and run the checks again. Never put a server secret in a NEXT_PUBLIC_ variable."], action: { label: "Open settings", view: "settings" } },
+  invitations: { monitors: "Confirms Villix can send private contributor onboarding invitations from its server-side mailbox.", impact: "Portal access can still be enabled, but administrators cannot send onboarding invitations directly from Villix Manager.", steps: ["Open Render → Environment for the active Villix service.", "Add INVITATION_SMTP_USER, INVITATION_SMTP_PASSWORD, and INVITATION_FROM_EMAIL using a dedicated Google app password.", "Keep the password server-only; never use a NEXT_PUBLIC_ name or include it in screenshots.", "Save, redeploy, send one staging invitation, then run the checks again."], action: { label: "Open settings", view: "settings" } },
   receipts: { monitors: "Counts receipts with unmatched people, unknown types, source mismatches, or other review issues.", impact: "Affected receipt entries are excluded from payout approval until an administrator resolves them.", steps: ["Open Inbox and select the receipt marked Needs review.", "Match every imported handle to the correct contributor or create the missing person.", "Resolve unknown contribution types and verify the extracted rows equal the printed total.", "Approve the receipt only after every issue is cleared; otherwise delete it and import a corrected PDF."], action: { label: "Review receipts", view: "inbox" } },
   payouts: { monitors: "Finds approved payout batches that have remained in processing for more than 30 minutes.", impact: "Recipients may be waiting, but retrying prematurely could create duplicate payment attempts.", steps: ["Keep the weekly payout locked and open Reconciliation.", "Check whether RazorpayX received the batch and compare provider references with Villix records.", "Run status sync before attempting any retry.", "If the provider has no payment, inspect Render logs and retry only after the existing idempotent attempt is confirmed safe."], action: { label: "Open reconciliation", view: "reconciliation" } },
   transfers: { monitors: "Detects failed recipient transfers and transfer attempts still processing after 30 minutes.", impact: "One or more final recipients may not have received their weekly payment.", steps: ["Open Reconciliation and identify each affected recipient and provider reference.", "Verify the recipient completed bank onboarding and that the beneficiary is active in RazorpayX.", "Sync provider status to capture a late success before retrying.", "Correct the beneficiary or provider issue, then retry only the failed transfer using its protected idempotency flow."], action: { label: "Review transfers", view: "reconciliation" } },
@@ -430,6 +445,10 @@ function RecipientOnboarding({ people, invitePortals, openPeople }: { people: Pe
   const [selected, setSelected] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [subject, setSubject] = useState(defaultInvitationSubject);
+  const [message, setMessage] = useState(defaultInvitationMessage);
   const visible = incomplete.filter((person) => filter === "All" || (filter === "Not signed in" ? !person.portalLastSeenAt : !person.payoutReady));
   const selectedPeople = recipients.filter((person) => selected.includes(person.id));
   const allVisibleSelected = Boolean(visible.length) && visible.every((person) => selected.includes(person.id));
@@ -439,13 +458,30 @@ function RecipientOnboarding({ people, invitePortals, openPeople }: { people: Pe
     setSelected((current) => allVisibleSelected ? current.filter((id) => !visibleIds.has(id)) : [...new Set([...current, ...visibleIds])]);
   }
   function toggle(id: string) { setSelected((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]); }
-  async function emailSelected() {
+  async function emailSelected(event: FormEvent) {
+    event.preventDefault();
     if (!selectedPeople.length) return;
-    setSending(true); setError("");
+    setSending(true); setError(""); setSuccess("");
     try {
-      const portalUrl = await invitePortals(selectedPeople.map((person) => person.id));
-      openInvitationEmail(selectedPeople, portalUrl);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Invitations could not be prepared."); }
+      await invitePortals(selectedPeople.map((person) => person.id));
+      const response = await fetch("/api/payee-portal/invitations", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ personIds: selectedPeople.map((person) => person.id), subject, message }),
+      });
+      const result = await response.json().catch(() => ({})) as Partial<InvitationResult> & { error?: string };
+      if (!response.ok) throw new Error(result.error || `Email delivery failed (${response.status}).`);
+      const sent = result.sent ?? 0;
+      const failed = result.failed ?? 0;
+      if (failed) {
+        setSelected(result.failedPersonIds ?? []);
+        setError(`${sent} invitation${sent === 1 ? "" : "s"} sent. ${failed} could not be delivered and remain selected for retry.`);
+      } else {
+        setSelected([]);
+        setComposerOpen(false);
+        setSuccess(`${sent} invitation${sent === 1 ? "" : "s"} sent directly from Villix.`);
+      }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Invitations could not be sent."); }
     finally { setSending(false); }
   }
   async function copyLink() {
@@ -453,14 +489,27 @@ function RecipientOnboarding({ people, invitePortals, openPeople }: { people: Pe
     catch { setError(`Copy this link: ${contributorPortalUrl}`); }
   }
 
-  return <section className="surface onboarding-card">
+  return <><section className="surface onboarding-card">
     <div className="section-header onboarding-header"><div><h2>Contributor onboarding</h2><p>Direct contributors and team leads only. Team members are paid through their lead.</p></div><div className="onboarding-summary"><span><b>{recipients.filter((person) => !person.portalLastSeenAt).length}</b> not signed in</span><span><b>{recipients.filter((person) => !person.payoutReady).length}</b> bank incomplete</span><span className="ready"><b>{recipients.filter((person) => person.portalLastSeenAt && person.payoutReady).length}</b> ready</span></div></div>
-    <div className="onboarding-toolbar"><div className="segmented" aria-label="Onboarding filter">{(["All", "Not signed in", "Bank incomplete"] as const).map((value) => <button className={filter === value ? "active" : ""} key={value} onClick={() => setFilter(value)}>{value}</button>)}</div><div className="command-actions"><button className="button secondary" onClick={() => void copyLink()}>Copy portal link</button><button className="button secondary" onClick={openPeople}>Open People</button><button className="button primary" disabled={!selectedPeople.length || sending} onClick={() => void emailSelected()}>{sending ? "Preparing…" : `Email selected${selectedPeople.length ? ` (${selectedPeople.length})` : ""}`}</button></div></div>
+    <div className="onboarding-toolbar"><div className="segmented" aria-label="Onboarding filter">{(["All", "Not signed in", "Bank incomplete"] as const).map((value) => <button className={filter === value ? "active" : ""} key={value} onClick={() => setFilter(value)}>{value}</button>)}</div><div className="command-actions"><button className="button secondary" onClick={() => void copyLink()}>Copy portal link</button><button className="button secondary" onClick={openPeople}>Open People</button><button className="button primary" disabled={!selectedPeople.length} onClick={() => { setError(""); setSuccess(""); setComposerOpen(true); }}>{`Email selected${selectedPeople.length ? ` (${selectedPeople.length})` : ""}`}</button></div></div>
     {error && <div className="onboarding-error">{error}</div>}
+    {success && <div className="onboarding-success">{success}</div>}
     <div className="onboarding-table"><div className="onboarding-row onboarding-labels"><label><input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} aria-label="Select visible recipients"/><span>Recipient</span></label><span>Portal access</span><span>Last sign-in</span><span>Bank setup</span></div>{visible.map((person) => <div className="onboarding-row" key={person.id}><label><input type="checkbox" checked={selected.includes(person.id)} onChange={() => toggle(person.id)} aria-label={`Select ${person.name}`}/><Avatar name={person.name}/><span><b>{person.name}</b><small>{person.role} · {person.email}</small></span></label><Status value={person.portalStatus}/><span>{person.portalLastSeenAt ?? "Never"}</span><Status value={person.payoutReady ? "Payout ready" : "Setup needed"}/></div>)}</div>
     {!visible.length && <Empty title="No recipients in this view" detail="Everyone matching this filter has completed their setup." />}
-    <div className="onboarding-note">Email selected opens one BCC invitation in your mail app. Recipients visit <b>contributor.villix.in</b> and request their own OTP; enabling access never sends an OTP.</div>
-  </section>;
+    <div className="onboarding-note">Review the message, then Villix sends each invitation privately from the configured mailbox. Recipients visit <b>contributor.villix.in</b> and request their own OTP.</div>
+  </section>
+  {composerOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (!sending && event.target === event.currentTarget) setComposerOpen(false); }}><section className="modal invitation-modal" role="dialog" aria-modal="true" aria-labelledby="invitation-title">
+    <header><div><span>Contributor onboarding</span><h2 id="invitation-title">Review invitation</h2></div><button type="button" disabled={sending} onClick={() => setComposerOpen(false)} aria-label="Close">×</button></header>
+    <form onSubmit={(event) => void emailSelected(event)}>
+      <div className="invitation-recipient-summary"><div><b>{selectedPeople.length} recipient{selectedPeople.length === 1 ? "" : "s"}</b><span>Each person receives a separate private email.</span></div><div className="invitation-recipient-list">{selectedPeople.map((person) => <span key={person.id}>{person.name} · {person.email}</span>)}</div></div>
+      <label className="invitation-field">Subject<input required maxLength={160} value={subject} onChange={(event) => setSubject(event.target.value)} /></label>
+      <label className="invitation-field">Message<textarea required maxLength={5000} value={message} onChange={(event) => setMessage(event.target.value)} /></label>
+      <div className="invitation-template-help"><span>Personalization</span><code>{"{{name}}"}</code><code>{"{{portal_url}}"}</code><p>The portal button and Villix email styling are added automatically.</p></div>
+      {error && <div className="onboarding-error invitation-error">{error}</div>}
+      <footer><button type="button" className="button secondary" disabled={sending} onClick={() => setComposerOpen(false)}>Cancel</button><button className="button primary" disabled={sending || !subject.trim() || !message.trim()} type="submit">{sending ? "Sending…" : `Send ${selectedPeople.length} invitation${selectedPeople.length === 1 ? "" : "s"}`}</button></footer>
+    </form>
+  </section></div>}
+  </>;
 }
 
 function Stat({ label, value, note }: { label: string; value: string; note: string }) { return <div className="stat"><span>{label}</span><strong>{value}</strong><small>{note}</small></div>; }

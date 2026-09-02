@@ -156,6 +156,24 @@ Supabase redirect configuration reference: <https://supabase.com/docs/guides/aut
 
 Supabase recommends custom SMTP for production authentication rather than its default best-effort service: <https://supabase.com/docs/guides/auth/auth-smtp>
 
+### Contributor invitation email
+
+Villix Manager sends onboarding invitations directly from the server. This is separate from the Supabase OTP email configuration.
+
+- [ ] In Google Account security for `admin@villix.in`, create a new, dedicated app password named **Villix invitations**. Do not reuse an app password that has appeared in a screenshot.
+- [ ] Add these server-only variables to both Render services (production and staging):
+  - `INVITATION_SMTP_HOST=smtp.gmail.com`
+  - `INVITATION_SMTP_PORT=465`
+  - `INVITATION_SMTP_USER=admin@villix.in`
+  - `INVITATION_SMTP_PASSWORD=<the dedicated 16-character app password>`
+  - `INVITATION_FROM_EMAIL=admin@villix.in`
+  - `INVITATION_FROM_NAME=Villix`
+- [ ] Never prefix the password with `NEXT_PUBLIC_`, commit it, or paste it into chat or screenshots.
+- [ ] Redeploy each service after saving the variables.
+- [ ] In **Overview → Contributor onboarding**, select one staging recipient, review the editable subject and message, and send a test invitation.
+- [ ] Confirm the recipient receives one private email, the link opens the contributor portal, and the audit log records the delivery.
+- [ ] Test Gmail and one non-Gmail inbox, including Spam, before sending a larger group. Keep each send to 25 recipients or fewer.
+
 ## 6. Shipd/DataCurve integration
 
 - [x] Villix can create a Shipd API key.
@@ -309,7 +327,7 @@ Complete this section only after staging passes.
 5. Open the receipt breakdown and compare it to the source document.
 6. Verify the correct published rule version applies.
 7. Review People and Teams for changes effective during the period.
-8. In **Overview → Contributor onboarding**, select the direct contributors and team leads who have not signed in, enable their access, and send the generated BCC email containing `https://contributor.villix.in`. Enabling access does not send an OTP; each recipient requests their own code from the contributor portal. Confirm every final recipient then has active portal access and a ready payout route.
+8. In **Overview → Contributor onboarding**, select the direct contributors and team leads who have not signed in, review the editable invitation, and send it directly from Villix Manager. Each recipient receives a separate private email containing `https://contributor.villix.in`. The invitation does not contain an OTP; each recipient requests their own code from the contributor portal. Confirm every final recipient then has active portal access and a ready payout route.
 9. Review the payout preview, Villix retained amount, and final recipient totals.
 10. Approve the weekly payout batch.
 11. Have a second administrator review the frozen payout snapshot.
