@@ -77,6 +77,7 @@ test("ships isolated staging, CI, behavioral rules, and private operational moni
   assert.match(workflow, /npm run test:behavior/);
   assert.match(workflow, /npm run build/);
   assert.match(staging, /villix-manager-staging/);
+  assert.match(staging, /EMAIL_OTP_ENABLED[\s\S]*"true"/);
   assert.match(staging, /PAYOUTS_LIVE_ENABLED[\s\S]*"false"/);
   assert.match(behavior, /historical team assignment/);
   assert.match(behavior, /retains bonus contributions/);
