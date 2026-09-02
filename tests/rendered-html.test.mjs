@@ -161,7 +161,7 @@ test("locks INR payout snapshots and guards provider dispatch", async () => {
   assert.match(managerApp, /No assumed fee/);
   assert.match(managerApp, /Every Villix payable and bank transfer remains in INR/);
   assert.match(managerApp, /table-total payout-table-total/);
-  assert.match(managerApp, /totals\.gross - totals\.payout/);
+  assert.match(managerApp, /totals\.retained \* effectiveRate/);
   assert.doesNotMatch(managerApp, /Payout currency<select/);
   assert.match(managerApp, /Indian bank payouts only/);
   assert.match(payoutRoute, /settlementAdjustmentBps/);
