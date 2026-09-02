@@ -31,6 +31,8 @@ services:
         sync: false
       - key: INVITATION_SMTP_PASSWORD
         sync: false
+      - key: RESEND_API_KEY
+        sync: false
       - key: INVITATION_FROM_EMAIL
         sync: false
       - key: INVITATION_FROM_NAME

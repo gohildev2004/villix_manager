@@ -2,19 +2,21 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LoginForm from "./LoginForm";
+import { safeAdminDestination } from "@/lib/admin-navigation";
 
 export const dynamic = "force-dynamic";
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; next?: string }> }) {
+  const { error, next: requestedDestination } = await searchParams;
+  const destination = safeAdminDestination(requestedDestination);
   const otpEnabled = process.env.EMAIL_OTP_ENABLED === "true";
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (user) {
     const { data: admin } = await supabase.from("admin_users").select("user_id").eq("user_id", user.id).eq("active", true).maybeSingle();
-    if (admin) redirect("/");
+    if (admin) redirect(destination);
     await supabase.auth.signOut();
   }
-  const { error } = await searchParams;
   return (
     <main className="login-page">
       <section className="login-card">
@@ -26,7 +28,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         </div>
         {error === "not_authorized" && <p className="login-error">This account is not authorized for Villix Manager.</p>}
         {error === "invalid_link" && <p className="login-error">That sign-in request is invalid or expired. Request a new {otpEnabled ? "code" : "link"} below.</p>}
-        <LoginForm otpEnabled={otpEnabled} />
+        <LoginForm otpEnabled={otpEnabled} destination={destination} />
         <footer>Villix internal operations · Access is logged</footer>
       </section>
     </main>

@@ -8,7 +8,7 @@ export async function POST(request: Request) {
     const { actor, supabase } = await requireAdmin();
     if (actor.role === "reviewer") return Response.json({ error: "Reviewers cannot email payout recipients." }, { status: 403 });
     if (!invitationEmailConfigured()) {
-      return Response.json({ error: "Invitation email is not configured. Add the invitation SMTP variables in Render first." }, { status: 409 });
+      return Response.json({ error: "Invitation email is not configured. Add RESEND_API_KEY and the sender address in Render." }, { status: 409 });
     }
 
     const body = await request.json() as Record<string, unknown>;

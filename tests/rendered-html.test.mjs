@@ -96,6 +96,50 @@ test("ships isolated staging, CI, behavioral rules, and private operational moni
   assert.match(ownerProtection, /intentionally has no client policies/i);
 });
 
+test("preserves admin routes, shows loading states, and refreshes shared data live", async () => {
+  const [page, loginPage, loginForm, confirmation, managerApp, loading, navigation, realtimeMigration] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/login/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/login/LoginForm.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/auth/confirm/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/loading.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/admin-navigation.ts", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260902033000_enable_admin_realtime.sql", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /initialView={initialView}/);
+  assert.match(page, /next=.*destination/);
+  assert.match(loginPage, /safeAdminDestination/);
+  assert.match(loginForm, /router\.replace\(destination\)/);
+  assert.match(confirmation, /safeAdminDestination/);
+  assert.match(managerApp, /window\.history\.pushState/);
+  assert.match(managerApp, /popstate/);
+  assert.match(managerApp, /postgres_changes/);
+  assert.match(managerApp, /removeChannel/);
+  assert.match(managerApp, /ViewSkeleton/);
+  assert.match(loading, /aria-busy="true"/);
+  assert.match(navigation, /adminViewHref/);
+  assert.match(realtimeMigration, /supabase_realtime/);
+});
+
+test("delivers invitations over HTTPS on Render with a bounded SMTP fallback", async () => {
+  const [email, invitationRoute, render, staging, managerApp] = await Promise.all([
+    readFile(new URL("../lib/invitation-email.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/payee-portal/invitations/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../render.yaml", import.meta.url), "utf8"),
+    readFile(new URL("../render.staging.yaml", import.meta.url), "utf8"),
+    readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(email, /https:\/\/api\.resend\.com\/emails/);
+  assert.match(email, /Bearer \$\{process\.env\.RESEND_API_KEY\}/);
+  assert.match(email, /connectionTimeout: 10_000/);
+  assert.match(email, /socketTimeout: 20_000/);
+  assert.match(invitationRoute, /RESEND_API_KEY/);
+  assert.match(render, /RESEND_API_KEY/);
+  assert.match(staging, /RESEND_API_KEY/);
+  assert.match(managerApp, /Email delivery timed out/);
+});
+
 test("provides person performance profiles and protects financial history on removal", async () => {
   const [managerApp, peopleRoute, stateRoute] = await Promise.all([
     readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),

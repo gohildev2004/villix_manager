@@ -7,13 +7,22 @@ type InvitationRecipient = {
 
 const DEFAULT_HOST = "smtp.gmail.com";
 const DEFAULT_PORT = 465;
+const RESEND_API_URL = "https://api.resend.com/emails";
 
-export function invitationEmailConfigured() {
-  return Boolean(
+export type InvitationEmailProvider = "resend" | "smtp" | "none";
+
+export function invitationEmailProvider(): InvitationEmailProvider {
+  if (process.env.RESEND_API_KEY && process.env.INVITATION_FROM_EMAIL) return "resend";
+  if (
     process.env.INVITATION_SMTP_USER &&
     process.env.INVITATION_SMTP_PASSWORD &&
-    process.env.INVITATION_FROM_EMAIL,
-  );
+    process.env.INVITATION_FROM_EMAIL
+  ) return "smtp";
+  return "none";
+}
+
+export function invitationEmailConfigured() {
+  return invitationEmailProvider() !== "none";
 }
 
 function escapeHtml(value: string) {
@@ -48,6 +57,42 @@ export async function sendInvitationEmail({ recipient, subjectTemplate, messageT
   portalUrl: string;
 }) {
   if (!invitationEmailConfigured()) throw new Error("Invitation email is not configured.");
+  const fromEmail = process.env.INVITATION_FROM_EMAIL!;
+  const fromName = process.env.INVITATION_FROM_NAME || "Villix";
+  const subject = renderTemplate(subjectTemplate, recipient, portalUrl);
+  const message = renderTemplate(messageTemplate, recipient, portalUrl);
+
+  if (invitationEmailProvider() === "resend") {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetch(RESEND_API_URL, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          from: `${fromName} <${fromEmail}>`,
+          reply_to: fromEmail,
+          to: [`${recipient.name} <${recipient.email}>`],
+          subject,
+          text: message,
+          html: messageHtml(message, portalUrl),
+        }),
+        signal: controller.signal,
+      });
+      const result = await response.json().catch(() => ({})) as { message?: string; name?: string };
+      if (!response.ok) throw new Error(result.message || result.name || `Email provider rejected the request (${response.status}).`);
+      return;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw new Error("Email provider connection timed out.");
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   const port = Number(process.env.INVITATION_SMTP_PORT || DEFAULT_PORT);
   const transporter = nodemailer.createTransport({
     host: process.env.INVITATION_SMTP_HOST || DEFAULT_HOST,
@@ -57,15 +102,16 @@ export async function sendInvitationEmail({ recipient, subjectTemplate, messageT
       user: process.env.INVITATION_SMTP_USER,
       pass: process.env.INVITATION_SMTP_PASSWORD,
     },
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
   });
-  const subject = renderTemplate(subjectTemplate, recipient, portalUrl);
-  const message = renderTemplate(messageTemplate, recipient, portalUrl);
   await transporter.sendMail({
     from: {
-      name: process.env.INVITATION_FROM_NAME || "Villix",
-      address: process.env.INVITATION_FROM_EMAIL!,
+      name: fromName,
+      address: fromEmail,
     },
-    replyTo: process.env.INVITATION_FROM_EMAIL,
+    replyTo: fromEmail,
     to: { name: recipient.name, address: recipient.email },
     subject,
     text: message,

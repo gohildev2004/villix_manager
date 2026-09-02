@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 
 const OTP_LENGTH = 8;
 
-export default function LoginForm({ otpEnabled = false }: { otpEnabled?: boolean }) {
+export default function LoginForm({ otpEnabled = false, destination = "/" }: { otpEnabled?: boolean; destination?: string }) {
   const router = useRouter();
   const otpInput = useRef<HTMLInputElement>(null);
   const [email, setEmail] = useState("");
@@ -34,7 +34,7 @@ export default function LoginForm({ otpEnabled = false }: { otpEnabled?: boolean
       email: email.trim().toLowerCase(),
       options: {
         shouldCreateUser: false,
-        emailRedirectTo: `${window.location.origin}/auth/confirm`,
+        emailRedirectTo: `${window.location.origin}/auth/confirm?next=${encodeURIComponent(destination)}`,
       },
     });
     setBusy(false);
@@ -72,7 +72,7 @@ export default function LoginForm({ otpEnabled = false }: { otpEnabled?: boolean
       setMessage("That code is incorrect or has expired. Please check it and try again.");
       return;
     }
-    router.push("/");
+    router.replace(destination);
     router.refresh();
   }
 

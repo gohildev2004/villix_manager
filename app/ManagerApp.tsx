@@ -1,11 +1,13 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { activePayoutPeriod, displayPayoutDate, type PayoutWeekday, scheduledPayoutDate } from "@/lib/payout-schedule";
+import { adminViewHref, parseAdminView, type AdminView } from "@/lib/admin-navigation";
+import { createClient } from "@/lib/supabase/client";
 
-type View = "overview" | "inbox" | "people" | "teams" | "payouts" | "reconciliation" | "audit" | "rules" | "health" | "settings";
+type View = AdminView;
 type Role = "Contributor" | "Team lead" | "Admin";
 type PersonStatus = "Active" | "Paused";
 type PortalStatus = "Not invited" | "Invited" | "Active" | "Suspended";
@@ -55,7 +57,7 @@ const healthRunbooks: Record<string, HealthRunbook> = {
   database: { monitors: "Confirms the application can read Villix workspace data from Supabase.", impact: "People, receipts, rules, and payouts may not load or save while this check is failing.", steps: ["Open the Supabase project and confirm it is healthy and not paused.", "In Render, verify NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY belong to the same Villix project.", "Review the latest Render and Supabase database logs for authentication, network, or policy errors.", "Correct the configuration, redeploy the service, then run the checks again."], action: { label: "Open settings", view: "settings" } },
   storage: { monitors: "Confirms the private Supabase bucket used for source receipt PDFs is available.", impact: "New receipts cannot be stored reliably, so imports should remain paused.", steps: ["Open Supabase Storage and confirm the receipt-files bucket exists and is private.", "Check the bucket policies and confirm the server secret can list and upload files.", "Confirm the app is connected to the intended Supabase project, not staging or another workspace.", "Repair the bucket or policy, then import a test PDF and run the checks again."], action: { label: "Open inbox", view: "inbox" } },
   configuration: { monitors: "Checks required server-only values and, when live payouts are enabled, RazorpayX credentials.", impact: "Imports, authentication, or payout operations may be unavailable. Live payouts must remain locked.", steps: ["Open Render → Environment for the active Villix service.", "Confirm the Supabase URL, publishable key, and SUPABASE_SECRET_KEY are present without exposing them in screenshots.", "If live payouts are enabled, also confirm the RazorpayX key, secret, account number, and webhook secret.", "Save the variables, redeploy, and run the checks again. Never put a server secret in a NEXT_PUBLIC_ variable."], action: { label: "Open settings", view: "settings" } },
-  invitations: { monitors: "Confirms Villix can send private contributor onboarding invitations from its server-side mailbox.", impact: "Portal access can still be enabled, but administrators cannot send onboarding invitations directly from Villix Manager.", steps: ["Open Render → Environment for the active Villix service.", "Add INVITATION_SMTP_USER, INVITATION_SMTP_PASSWORD, and INVITATION_FROM_EMAIL using a dedicated Google app password.", "Keep the password server-only; never use a NEXT_PUBLIC_ name or include it in screenshots.", "Save, redeploy, send one staging invitation, then run the checks again."], action: { label: "Open settings", view: "settings" } },
+  invitations: { monitors: "Confirms Villix can send private contributor onboarding invitations through its server-side email provider.", impact: "Portal access can still be enabled, but administrators cannot send onboarding invitations directly from Villix Manager.", steps: ["Open Resend and verify the villix.in sending domain.", "Create a Resend API key, then add it in Render as RESEND_API_KEY for the active service.", "Confirm INVITATION_FROM_EMAIL is admin@villix.in. Keep the API key server-only and out of screenshots.", "Save, redeploy, send one staging invitation, then run the checks again."], action: { label: "Open settings", view: "settings" } },
   receipts: { monitors: "Counts receipts with unmatched people, unknown types, source mismatches, or other review issues.", impact: "Affected receipt entries are excluded from payout approval until an administrator resolves them.", steps: ["Open Inbox and select the receipt marked Needs review.", "Match every imported handle to the correct contributor or create the missing person.", "Resolve unknown contribution types and verify the extracted rows equal the printed total.", "Approve the receipt only after every issue is cleared; otherwise delete it and import a corrected PDF."], action: { label: "Review receipts", view: "inbox" } },
   payouts: { monitors: "Finds approved payout batches that have remained in processing for more than 30 minutes.", impact: "Recipients may be waiting, but retrying prematurely could create duplicate payment attempts.", steps: ["Keep the weekly payout locked and open Reconciliation.", "Check whether RazorpayX received the batch and compare provider references with Villix records.", "Run status sync before attempting any retry.", "If the provider has no payment, inspect Render logs and retry only after the existing idempotent attempt is confirmed safe."], action: { label: "Open reconciliation", view: "reconciliation" } },
   transfers: { monitors: "Detects failed recipient transfers and transfer attempts still processing after 30 minutes.", impact: "One or more final recipients may not have received their weekly payment.", steps: ["Open Reconciliation and identify each affected recipient and provider reference.", "Verify the recipient completed bank onboarding and that the beneficiary is active in RazorpayX.", "Sync provider status to capture a late success before retrying.", "Correct the beneficiary or provider issue, then retry only the failed transfer using its protected idempotency flow."], action: { label: "Review transfers", view: "reconciliation" } },
@@ -88,9 +90,10 @@ function openInvitationEmail(recipients: Person[], portalUrl: string) {
   window.location.href = `mailto:${address}?subject=${subject}&body=${body}${bcc}`;
 }
 
-export default function ManagerApp() {
+export default function ManagerApp({ initialView = "overview" }: { initialView?: View }) {
   const router = useRouter();
-  const [view, setView] = useState<View>("overview");
+  const [view, setActiveView] = useState<View>(initialView);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [people, setPeople] = useState<Person[]>(initialPeople);
   const [entries, setEntries] = useState<Entry[]>(initialEntries);
   const [receiptEntries, setReceiptEntries] = useState<Entry[]>(initialEntries);
@@ -118,14 +121,34 @@ export default function ManagerApp() {
   const [actorName, setActorName] = useState("Administrator");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  async function api<T>(url: string, init?: RequestInit): Promise<T> {
-    const response = await fetch(url, init);
-    const payload = await response.json().catch(() => ({})) as { error?: string } & T;
-    if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
-    return payload;
-  }
+  const setView = useCallback((nextView: View) => {
+    setActiveView(nextView);
+    window.history.pushState(null, "", adminViewHref(nextView));
+  }, []);
 
-  async function refreshState() {
+  useEffect(() => {
+    const handleHistoryNavigation = () => setActiveView(parseAdminView(new URL(window.location.href).searchParams.get("view")));
+    window.addEventListener("popstate", handleHistoryNavigation);
+    return () => window.removeEventListener("popstate", handleHistoryNavigation);
+  }, []);
+
+  const api = useCallback(async function api<T>(url: string, init?: RequestInit): Promise<T> {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      const payload = await response.json().catch(() => ({})) as { error?: string } & T;
+      if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
+      return payload;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw new Error("The server took too long to respond. Nothing was retried automatically; please try again.");
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }, []);
+
+  const refreshState = useCallback(async () => {
     try {
       const [state, health] = await Promise.all([
         api<ServerState>("/api/state", { cache: "no-store" }),
@@ -141,12 +164,30 @@ export default function ManagerApp() {
     } catch (error) {
       setServerStatus("error");
       setParseError(error instanceof Error ? `Server connection failed: ${error.message}` : "Server connection failed.");
+    } finally {
+      setInitialLoading(false);
     }
-  }
+  }, [api]);
 
-  // The API is the external source of truth; hydrate this client-only dashboard once on mount.
-  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
-  useEffect(() => { void refreshState(); }, []);
+  // The API remains the source of truth. Realtime events only trigger one debounced re-fetch.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refreshState();
+    const supabase = createClient();
+    let timer: number | undefined;
+    const scheduleRefresh = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => void refreshState(), 300);
+    };
+    const tables = ["people", "payee_profiles", "payee_portal_accounts", "receipts", "contribution_entries", "audit_events", "payout_batches", "payout_recipients", "payment_attempts", "workspace_settings", "rule_versions", "contribution_rules", "provider_webhook_events"];
+    let channel = supabase.channel("villix-admin-live");
+    for (const table of tables) channel = channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleRefresh);
+    channel.subscribe((status) => { if (status === "SUBSCRIBED") scheduleRefresh(); });
+    return () => {
+      window.clearTimeout(timer);
+      void supabase.removeChannel(channel);
+    };
+  }, [refreshState]);
 
   const totals = useMemo<Totals>(() => {
     const gross = entries.reduce((sum, entry) => sum + entry.gross, 0);
@@ -352,16 +393,18 @@ export default function ManagerApp() {
           {parsing && <div className="processing-banner"><span className="spinner"/>Reading and verifying your receipt…</div>}
           {parseError && <div className="alert error-alert"><span>!</span><div><b>Receipt not added</b><p>{parseError}</p></div><button onClick={() => setParseError("")}>Dismiss</button></div>}
 
-          {view === "overview" && <Overview totals={totals} openIssues={openIssues} receipts={receipts} payoutRows={payoutRows} people={people} monitoring={operationalHealth} invitePortals={invitePayeePortals} setView={setView} />}
-          {view === "inbox" && <Inbox receipts={receipts} entries={receiptEntries} people={people} approveReceipt={async (id) => { try { await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) }); await refreshState(); notify("Receipt approved"); } catch (error) { notify(error instanceof Error ? error.message : "Receipt could not be approved"); } }} deleteReceipt={deleteReceipt} reviewReceipt={setReviewReceipt} openImport={() => fileRef.current?.click()} />}
-          {view === "people" && <People people={people} entries={entries} query={query} setQuery={setQuery} updatePerson={updatePerson} editPerson={savePersonDetails} invitePortal={async (id) => invitePayeePortals([id])} suspendPortal={suspendPayeePortal} removePerson={removePerson} openAdd={() => setPersonModal(true)} />}
-          {view === "teams" && <Teams people={people} entries={entries} updatePerson={updatePerson} />}
-          {view === "payouts" && <Payouts totals={totals} rows={payoutRows} payoutDate={payoutDate} payoutDay={payoutDay} status={batchStatus} approve={approveBatch} openIssues={openIssues} snapshot={payoutSnapshot} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} adjustment={settlementAdjustment} setAdjustment={setSettlementAdjustment} />}
-          {view === "reconciliation" && <Reconciliation rows={payoutRows} people={people} batchStatus={batchStatus} statuses={paymentStatuses} readyPayments={readyPayments} snapshot={payoutSnapshot} providerReadiness={providerReadiness} dispatch={dispatchBatch} sync={syncPayouts} />}
-          {view === "audit" && <Audit events={audit} />}
-          {view === "rules" && <Rules versions={ruleVersions} rules={rules} mutate={mutateRules} />}
-          {view === "health" && <SystemHealth monitoring={operationalHealth} refresh={refreshState} openView={setView} />}
-          {view === "settings" && <Settings saved={settingsSaved} payoutDay={payoutDay} setPayoutDay={(day) => { setPayoutDay(day); setPayoutDate(scheduledPayoutDate(activePayoutPeriod.end, day)); }} save={saveSettings} />}
+          {initialLoading ? <ViewSkeleton view={view} /> : <>
+            {view === "overview" && <Overview totals={totals} openIssues={openIssues} receipts={receipts} payoutRows={payoutRows} people={people} monitoring={operationalHealth} invitePortals={invitePayeePortals} setView={setView} />}
+            {view === "inbox" && <Inbox receipts={receipts} entries={receiptEntries} people={people} approveReceipt={async (id) => { try { await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) }); await refreshState(); notify("Receipt approved"); } catch (error) { notify(error instanceof Error ? error.message : "Receipt could not be approved"); } }} deleteReceipt={deleteReceipt} reviewReceipt={setReviewReceipt} openImport={() => fileRef.current?.click()} />}
+            {view === "people" && <People people={people} entries={entries} query={query} setQuery={setQuery} updatePerson={updatePerson} editPerson={savePersonDetails} invitePortal={async (id) => invitePayeePortals([id])} suspendPortal={suspendPayeePortal} removePerson={removePerson} openAdd={() => setPersonModal(true)} />}
+            {view === "teams" && <Teams people={people} entries={entries} updatePerson={updatePerson} />}
+            {view === "payouts" && <Payouts totals={totals} rows={payoutRows} payoutDate={payoutDate} payoutDay={payoutDay} status={batchStatus} approve={approveBatch} openIssues={openIssues} snapshot={payoutSnapshot} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} adjustment={settlementAdjustment} setAdjustment={setSettlementAdjustment} />}
+            {view === "reconciliation" && <Reconciliation rows={payoutRows} people={people} batchStatus={batchStatus} statuses={paymentStatuses} readyPayments={readyPayments} snapshot={payoutSnapshot} providerReadiness={providerReadiness} dispatch={dispatchBatch} sync={syncPayouts} />}
+            {view === "audit" && <Audit events={audit} />}
+            {view === "rules" && <Rules versions={ruleVersions} rules={rules} mutate={mutateRules} />}
+            {view === "health" && <SystemHealth monitoring={operationalHealth} refresh={refreshState} openView={setView} />}
+            {view === "settings" && <Settings saved={settingsSaved} payoutDay={payoutDay} setPayoutDay={(day) => { setPayoutDay(day); setPayoutDate(scheduledPayoutDate(activePayoutPeriod.end, day)); }} save={saveSettings} />}
+          </>}
         </div>
       </main>
 
@@ -371,6 +414,14 @@ export default function ManagerApp() {
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
     </div>
   );
+}
+
+function ViewSkeleton({ view }: { view: View }) {
+  const rows = view === "teams" ? 3 : view === "overview" ? 2 : 5;
+  return <div className={`view-skeleton ${view}`} aria-label={`Loading ${viewCopy[view].title}`} aria-busy="true">
+    <section className="surface skeleton-hero"><div className="skeleton-block skeleton-kicker"/><div className="skeleton-block skeleton-value"/><div className="skeleton-block skeleton-copy"/></section>
+    <section className="surface skeleton-panel"><div className="skeleton-panel-head"><div className="skeleton-block skeleton-heading"/><div className="skeleton-block skeleton-action"/></div>{Array.from({ length: rows }, (_, index) => <div className="skeleton-row" key={index}><div className="skeleton-block skeleton-avatar"/><div className="skeleton-row-copy"><div className="skeleton-block skeleton-line"/><div className="skeleton-block skeleton-line short"/></div><div className="skeleton-block skeleton-cell"/><div className="skeleton-block skeleton-cell"/></div>)}</section>
+  </div>;
 }
 
 function Overview({ totals, openIssues, receipts, payoutRows, people, monitoring, invitePortals, setView }: { totals: Totals; openIssues: number; receipts: Receipt[]; payoutRows: PayoutRow[]; people: Person[]; monitoring: OperationalHealth; invitePortals: (ids: string[]) => Promise<string>; setView: (view: View) => void }) {
@@ -462,12 +513,15 @@ function RecipientOnboarding({ people, invitePortals, openPeople }: { people: Pe
     event.preventDefault();
     if (!selectedPeople.length) return;
     setSending(true); setError(""); setSuccess("");
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 45000);
     try {
       await invitePortals(selectedPeople.map((person) => person.id));
       const response = await fetch("/api/payee-portal/invitations", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ personIds: selectedPeople.map((person) => person.id), subject, message }),
+        signal: controller.signal,
       });
       const result = await response.json().catch(() => ({})) as Partial<InvitationResult> & { error?: string };
       if (!response.ok) throw new Error(result.error || `Email delivery failed (${response.status}).`);
@@ -481,8 +535,8 @@ function RecipientOnboarding({ people, invitePortals, openPeople }: { people: Pe
         setComposerOpen(false);
         setSuccess(`${sent} invitation${sent === 1 ? "" : "s"} sent directly from Villix.`);
       }
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Invitations could not be sent."); }
-    finally { setSending(false); }
+    } catch (cause) { setError(cause instanceof DOMException && cause.name === "AbortError" ? "Email delivery timed out. Check System health and the configured email provider, then try again." : cause instanceof Error ? cause.message : "Invitations could not be sent."); }
+    finally { window.clearTimeout(timeout); setSending(false); }
   }
   async function copyLink() {
     try { await navigator.clipboard.writeText(contributorPortalUrl); }

@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { safeAdminDestination } from "@/lib/admin-navigation";
 
 export default function ConfirmPage() {
   const router = useRouter();
@@ -15,6 +16,7 @@ export default function ConfirmPage() {
     async function confirm() {
       const supabase = createClient();
       const url = new URL(window.location.href);
+      const destination = safeAdminDestination(url.searchParams.get("next"));
       const code = url.searchParams.get("code");
       const tokenHash = url.searchParams.get("token_hash");
       const type = url.searchParams.get("type") as EmailOtpType | null;
@@ -41,18 +43,18 @@ export default function ConfirmPage() {
 
       if (error) {
         if (active) setMessage("This sign-in link is invalid or expired.");
-        window.setTimeout(() => router.replace("/login?error=invalid_link"), 800);
+        window.setTimeout(() => router.replace(`/login?error=invalid_link&next=${encodeURIComponent(destination)}`), 800);
         return;
       }
 
-      window.history.replaceState({}, document.title, "/auth/confirm");
+      window.history.replaceState({}, document.title, `/auth/confirm?next=${encodeURIComponent(destination)}`);
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (!user || userError) {
         if (active) setMessage("We could not verify this administrator session.");
-        window.setTimeout(() => router.replace("/login?error=invalid_link"), 800);
+        window.setTimeout(() => router.replace(`/login?error=invalid_link&next=${encodeURIComponent(destination)}`), 800);
         return;
       }
-      router.replace("/");
+      router.replace(destination);
       router.refresh();
     }
     void confirm();

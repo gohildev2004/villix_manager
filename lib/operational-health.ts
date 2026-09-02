@@ -1,6 +1,6 @@
 import type { VillixClient } from "@/lib/villix-server";
 import { safeJson } from "@/lib/villix-server";
-import { invitationEmailConfigured } from "@/lib/invitation-email";
+import { invitationEmailConfigured, invitationEmailProvider } from "@/lib/invitation-email";
 
 export type HealthCheckStatus = "healthy" | "warning" | "error";
 export type OperationalHealthCheck = { id: string; label: string; status: HealthCheckStatus; detail: string };
@@ -41,8 +41,8 @@ export async function collectOperationalHealth(supabase: VillixClient): Promise<
     ? { id: "configuration", label: "Server configuration", status: "healthy", detail: payoutsLive ? "Live payout configuration is present." : "Test mode is locked and server configuration is present." }
     : { id: "configuration", label: "Server configuration", status: "error", detail: "One or more required server-only environment values are missing." });
   checks.push(invitationEmailConfigured()
-    ? { id: "invitations", label: "Invitation email", status: "healthy", detail: "Server-side contributor invitation delivery is configured." }
-    : { id: "invitations", label: "Invitation email", status: "warning", detail: "Contributor invitation SMTP variables are missing." });
+    ? { id: "invitations", label: "Invitation email", status: "healthy", detail: invitationEmailProvider() === "resend" ? "HTTPS invitation delivery is configured." : "SMTP invitation delivery is configured." }
+    : { id: "invitations", label: "Invitation email", status: "warning", detail: "Add a Resend API key or complete the SMTP variables." });
 
   const receiptRows = receipts.data ?? [];
   const receiptsNeedingReview = receiptRows.filter((receipt) => receipt.status === "review" || safeJson<string[]>(receipt.issues, []).length > 0).length;
