@@ -484,6 +484,8 @@ export type Database = {
           created_at: string
           gross_cents: number
           gross_settlement_cents: number
+          held_at: string | null
+          hold_reason: string | null
           id: string
           paid_at: string | null
           payable_cents: number
@@ -506,6 +508,8 @@ export type Database = {
           created_at?: string
           gross_cents: number
           gross_settlement_cents?: number
+          held_at?: string | null
+          hold_reason?: string | null
           id?: string
           paid_at?: string | null
           payable_cents: number
@@ -528,6 +532,8 @@ export type Database = {
           created_at?: string
           gross_cents?: number
           gross_settlement_cents?: number
+          held_at?: string | null
+          hold_reason?: string | null
           id?: string
           paid_at?: string | null
           payable_cents?: number

@@ -161,7 +161,7 @@ h1 { margin: 0; font-size: clamp(29px, 3.1vw, 43px); line-height: 1.03; letter-s
 .inbox-table .data-head, .inbox-table .data-row { grid-template-columns: minmax(280px,1.6fr) .7fr .45fr .6fr .7fr .65fr; }
 .people-table .data-head, .people-table .data-row { grid-template-columns: minmax(245px,1.5fr) .72fr .9fr 1fr .58fr minmax(115px,.7fr); }
 .payout-table .data-head, .payout-table .data-row, .payout-table-total { grid-template-columns: minmax(230px,1.5fr) .75fr .65fr .72fr .65fr .65fr; }
-.recon-table .data-head, .recon-table .data-row { grid-template-columns: minmax(230px,1.4fr) .65fr .8fr .6fr 1fr; }
+.recon-table .data-head, .recon-table .data-row { grid-template-columns: minmax(210px,1.35fr) .7fr .65fr .65fr 1fr .6fr; }
 .file-cell, .identity-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .file-cell > i { width: 32px; height: 37px; border-radius: 5px; background: var(--red-bg); color: var(--red); display: grid; place-items: center; font-size: 6px; font-style: normal; font-weight: 760; }
 .file-cell b, .identity-cell b { display: block; overflow: hidden; text-overflow: ellipsis; font-size: 9px; font-weight: 610; color: var(--ink); }
@@ -182,10 +182,13 @@ h1 { margin: 0; font-size: clamp(29px, 3.1vw, 43px); line-height: 1.03; letter-s
 .status.active i, .status.approved i, .status.paid i, .status.verified i { background: #45a25c; }
 .status.needs-review, .status.ready, .status.draft { background: var(--amber-bg); color: var(--amber); }
 .status.needs-review i, .status.ready i, .status.draft i { background: #d28a1a; }
+.status.on-hold, .status.bank-setup-needed, .status.setup-needed { background: var(--amber-bg); color: var(--amber); }
+.status.on-hold i, .status.bank-setup-needed i, .status.setup-needed i { background: #d28a1a; }
 .status.failed, .status.paused { background: var(--red-bg); color: var(--red); }
 .status.failed i, .status.paused i { background: var(--red); }
 .status.safety-lock { background: #efedfa; color: var(--violet); }
 .status.safety-lock i { background: var(--violet); }
+.hold-reason { display: block; max-width: 190px; margin-top: 5px; color: var(--tertiary); font-size: 7px; line-height: 1.35; }
 .empty { padding: 55px 20px; text-align: center; color: var(--secondary); }
 .empty > span { width: 39px; height: 39px; margin: 0 auto 11px; border-radius: 50%; background: rgba(0,0,0,.045); display: grid; place-items: center; }
 .empty b { display: block; font-size: 10px; color: var(--ink); }

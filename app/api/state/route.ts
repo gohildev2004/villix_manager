@@ -18,7 +18,7 @@ export async function GET() {
       supabase.from("contribution_entries").select("*, receipts!inner(filename,receipt_date,status)").order("created_at"),
       supabase.from("receipts").select("*, contribution_entries(count)").order("receipt_date", { ascending: false }).order("created_at", { ascending: false }),
       supabase.from("audit_events").select("*").order("created_at", { ascending: false }).limit(100),
-      supabase.from("payout_batches").select("id,status,payout_date,exchange_rate,settlement_adjustment_bps,total_gross_settlement_cents,total_retained_settlement_cents,total_payable_settlement_cents,payout_provider,payout_recipients(person_id,status,payout_currency,payout_amount_minor,payout_provider)").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("payout_batches").select("id,status,payout_date,exchange_rate,settlement_adjustment_bps,total_gross_settlement_cents,total_retained_settlement_cents,total_payable_settlement_cents,payout_provider,payout_recipients(person_id,status,hold_reason,payout_currency,payout_amount_minor,payout_provider)").order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("rule_versions").select("version,status,effective_from,created_at,published_at").order("version", { ascending: false }),
       supabase.from("contribution_rules").select("version,type,label,description,payout_bps,active").order("type"),
       supabase.from("workspace_settings").select("value").eq("key", "payout_policy").maybeSingle(),
@@ -88,7 +88,7 @@ export async function GET() {
     const batch = batchQuery.data;
     const payoutPolicy = safeJson<Record<string, unknown>>(settingsQuery.data?.value, {});
     const payoutDay = isPayoutWeekday(payoutPolicy.payoutDay) ? payoutPolicy.payoutDay : "Monday";
-    const paymentStatuses = Object.fromEntries((batch?.payout_recipients ?? []).map((item) => [item.person_id, item.status === "paid" ? "Paid" : item.status === "failed" ? "Failed" : item.status === "processing" ? "Processing" : "Ready"]));
+    const paymentStatuses = Object.fromEntries((batch?.payout_recipients ?? []).map((item) => [item.person_id, item.status === "paid" ? "Paid" : item.status === "failed" ? "Failed" : item.status === "processing" ? "Processing" : item.status === "held" ? "On hold" : "Ready"]));
 
     return Response.json({
       people,
@@ -108,7 +108,7 @@ export async function GET() {
         retainedInr: batch.total_retained_settlement_cents / 100,
         payableInr: batch.total_payable_settlement_cents / 100,
         provider: batch.payout_provider,
-        recipients: batch.payout_recipients.map((recipient) => ({ personId: recipient.person_id, status: recipient.status, currency: recipient.payout_currency, amount: recipient.payout_amount_minor / 100, provider: recipient.payout_provider })),
+        recipients: batch.payout_recipients.map((recipient) => ({ personId: recipient.person_id, status: recipient.status, holdReason: recipient.hold_reason, currency: recipient.payout_currency, amount: recipient.payout_amount_minor / 100, provider: recipient.payout_provider })),
       } : null,
       providerReadiness: {
         razorpayxConfigured: Boolean(process.env.RAZORPAYX_KEY_ID && process.env.RAZORPAYX_KEY_SECRET && process.env.RAZORPAYX_ACCOUNT_NUMBER),

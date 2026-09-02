@@ -147,14 +147,15 @@ test("shows receipt breakdowns and enforces the weekly payout schedule", async (
   assert.match(schedule, /label: "Aug 24 – Aug 30"/);
 });
 
-test("locks INR payout snapshots and guards provider dispatch", async () => {
-  const [managerApp, payoutRoute, dispatchRoute, stateRoute, provider, migration, renderConfig] = await Promise.all([
+test("locks INR payout snapshots and dispatches only ready recipients", async () => {
+  const [managerApp, payoutRoute, dispatchRoute, stateRoute, provider, migration, holdMigration, renderConfig] = await Promise.all([
     readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/payouts/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/payouts/dispatch/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/state/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/razorpayx.ts", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/20260901015829_multi_currency_payout_snapshots.sql", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260902013603_recipient_level_payout_holds.sql", import.meta.url), "utf8"),
     readFile(new URL("../render.yaml", import.meta.url), "utf8"),
   ]);
   assert.match(managerApp, /INR settlement/);
@@ -168,8 +169,12 @@ test("locks INR payout snapshots and guards provider dispatch", async () => {
   assert.match(payoutRoute, /payout_currency/);
   assert.match(payoutRoute, /payout_amount_minor/);
   assert.match(payoutRoute, /currency: "INR"/);
-  assert.match(dispatchRoute, /missing a ready RazorpayX fund account/);
-  assert.match(dispatchRoute, /Reconcile them before retrying to prevent duplicate transfers/);
+  assert.match(payoutRoute, /status: "held"/);
+  assert.match(payoutRoute, /hold_reason/);
+  assert.match(dispatchRoute, /status === "ready"/);
+  assert.match(dispatchRoute, /\["ready", "failed"\]/);
+  assert.match(dispatchRoute, /attemptNumber/);
+  assert.match(dispatchRoute, /on hold until bank setup is complete/);
   assert.match(dispatchRoute, /PAYOUTS_LIVE_ENABLED !== "true"/);
   assert.match(dispatchRoute, /No real transfers can be created/);
   assert.match(stateRoute, /payoutsLive: process\.env\.PAYOUTS_LIVE_ENABLED === "true"/);
@@ -183,6 +188,12 @@ test("locks INR payout snapshots and guards provider dispatch", async () => {
   assert.match(provider, /queue_if_low_balance: false/);
   assert.match(migration, /payout_fx_rate/);
   assert.match(migration, /total_payable_settlement_cents/);
+  assert.match(holdMigration, /'ready', 'held', 'processing', 'paid', 'failed', 'cancelled'/);
+  assert.match(holdMigration, /hold_reason/);
+  assert.match(holdMigration, /idx_payout_recipients_batch_outstanding/);
+  assert.match(stateRoute, /item\.status === "held" \? "On hold"/);
+  assert.match(managerApp, /Ready recipients can still be paid/);
+  assert.match(managerApp, /Retry failed/);
 });
 
 test("prepares a restricted payee portal, hosted onboarding handoff, and payout reconciliation", async () => {

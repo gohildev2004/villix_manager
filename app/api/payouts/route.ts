@@ -93,6 +93,18 @@ export async function POST(request: Request) {
     });
     const totalGrossSettlementCents = settlementAmount(totalGrossCents, exchangeRate, settlementAdjustmentBps);
     const totalPayableSettlementCents = recipientSnapshots.reduce((sum, snapshot) => sum + snapshot.payableSettlementCents, 0);
+    const recipientIds = recipientSnapshots.map((snapshot) => snapshot.recipient.personId);
+    const { data: payeeProfiles, error: payeeProfilesError } = recipientIds.length
+      ? await supabase.from("payee_profiles").select("person_id,onboarding_status,payout_provider,provider_recipient_id").in("person_id", recipientIds)
+      : { data: [], error: null };
+    if (payeeProfilesError) throw payeeProfilesError;
+    const profileByPerson = new Map((payeeProfiles ?? []).map((profile) => [profile.person_id, profile]));
+    const readiness = (personId: string) => {
+      const profile = profileByPerson.get(personId);
+      if (!profile || profile.onboarding_status !== "ready") return { status: "held", reason: "Bank onboarding is incomplete." } as const;
+      if (profile.payout_provider !== "razorpayx" || !profile.provider_recipient_id) return { status: "held", reason: "A verified RazorpayX fund account is required." } as const;
+      return { status: "ready", reason: null } as const;
+    };
 
     const batchId = existing?.id ?? crypto.randomUUID();
     const calculationHash = await digest(JSON.stringify({ periodStart, periodEnd, ruleVersion, exchangeRate, settlementAdjustmentBps, entries: calculationEntries, recipients: recipientSnapshots.map(({ recipient, ...snapshot }) => ({ personId: recipient.personId, ...snapshot })) }));
@@ -126,7 +138,10 @@ export async function POST(request: Request) {
     }
 
     if (recipientSnapshots.length) {
-      const { error: recipientError } = await supabase.from("payout_recipients").insert(recipientSnapshots.map(({ recipient, ...snapshot }) => ({
+      const approvedAt = new Date().toISOString();
+      const { error: recipientError } = await supabase.from("payout_recipients").insert(recipientSnapshots.map(({ recipient, ...snapshot }) => {
+        const recipientReadiness = readiness(recipient.personId);
+        return ({
         id: crypto.randomUUID(),
         batch_id: batchId,
         person_id: recipient.personId,
@@ -143,8 +158,10 @@ export async function POST(request: Request) {
         payout_fx_rate: snapshot.payoutFxRate,
         payout_provider: snapshot.provider,
         contributor_breakdown: recipient.contributors.map((contributor) => ({ ...contributor, grossSettlementCents: settlementAmount(contributor.grossCents, exchangeRate, settlementAdjustmentBps), payableSettlementCents: settlementAmount(contributor.payableCents, exchangeRate, settlementAdjustmentBps) })),
-        status: "ready",
-      })));
+        status: recipientReadiness.status,
+        hold_reason: recipientReadiness.reason,
+        held_at: recipientReadiness.status === "held" ? approvedAt : null,
+      }); }));
       if (recipientError) throw recipientError;
     }
 
