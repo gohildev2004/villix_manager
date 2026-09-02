@@ -64,7 +64,7 @@ test("parses, reviews, and validates receipt PDFs on the trusted server", async 
 });
 
 test("ships isolated staging, CI, behavioral rules, and private operational monitoring", async () => {
-  const [workflow, staging, behavior, monitoring, readiness, managerApp, render] = await Promise.all([
+  const [workflow, staging, behavior, monitoring, readiness, managerApp, render, ownerProtection] = await Promise.all([
     readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8"),
     readFile(new URL("../render.staging.yaml", import.meta.url), "utf8"),
     readFile(new URL("./behavioral-rules.test.mjs", import.meta.url), "utf8"),
@@ -72,6 +72,7 @@ test("ships isolated staging, CI, behavioral rules, and private operational moni
     readFile(new URL("../app/api/health/ready/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/ManagerApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../render.yaml", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260902005343_protect_initial_owners.sql", import.meta.url), "utf8"),
   ]);
   assert.match(workflow, /npm run test:behavior/);
   assert.match(workflow, /npm run build/);
@@ -90,6 +91,8 @@ test("ships isolated staging, CI, behavioral rules, and private operational moni
   assert.match(managerApp, /healthRunbooks/);
   assert.match(managerApp, /retrying prematurely could create duplicate payment attempts/);
   assert.match(render, /healthCheckPath: \/api\/health\/ready/);
+  assert.match(ownerProtection, /alter table private\.initial_owners enable row level security/i);
+  assert.match(ownerProtection, /intentionally has no client policies/i);
 });
 
 test("provides person performance profiles and protects financial history on removal", async () => {
