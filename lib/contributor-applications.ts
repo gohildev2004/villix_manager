@@ -9,7 +9,7 @@ Welcome to Villix. Your contributor profile is ready.
 
 Open {{portal_url}} and sign in with this email address. We will send you a one-time verification code.
 
-You will also be asked for the Shipd.ai username you use now or intend to create. You can update it later until an approved receipt matches it exactly.
+You will also be asked for the Shipd.ai username you use now or intend to create. You can update it later from your contributor profile if needed.
 
 Regards,
 Villix`;

@@ -18,10 +18,19 @@ export default function ShipdHandleForm({ initialHandle = "", locked = false, fi
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not save username."); }
     finally { setSaving(false); }
   }
+
+  const helperText = firstSetup
+    ? "Enter the username you use on Shipd.ai. If you have not created it yet, add the username you plan to use—you can update it later."
+    : locked
+      ? "This username is saved to your Villix profile. Contact Villix if you need to change it."
+      : "Use the same username you use on Shipd.ai. You can update it here whenever it changes.";
+
   return <form className="shipd-handle-form" onSubmit={submit}>
-    <label htmlFor="shipd-handle">Shipd.ai username</label>
-    <p>{firstSetup ? "Enter the username you already use or plan to create on Shipd.ai. You can change it later if it is unavailable." : locked ? "Matched exactly to an approved receipt. Contact Villix if this needs correction." : "Keep this identical to your Shipd.ai username so receipt imports match automatically."}</p>
-    <div><input id="shipd-handle" value={handle} onChange={(event) => setHandle(event.target.value)} placeholder="@your_username" disabled={locked || saving} required autoCapitalize="none" autoCorrect="off"/><button type="submit" disabled={locked || saving}>{locked ? "Verified" : saving ? "Saving…" : firstSetup ? "Complete profile" : "Update username"}</button></div>
+    <div className="shipd-field-copy">
+      <label htmlFor="shipd-handle">Username</label>
+      <p>{helperText}</p>
+    </div>
+    <div className="shipd-input-row"><input id="shipd-handle" value={handle} onChange={(event) => setHandle(event.target.value)} placeholder="@your_username" disabled={locked || saving} required autoCapitalize="none" autoCorrect="off" spellCheck={false}/><button type="submit" disabled={locked || saving}>{locked ? "Saved" : saving ? "Saving…" : firstSetup ? "Complete profile" : "Save changes"}</button></div>
     {error && <span className="form-error">{error}</span>}
   </form>;
 }

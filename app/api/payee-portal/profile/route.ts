@@ -22,7 +22,7 @@ export async function POST(request: Request) {
 
     const { data: person, error: personError } = await admin.from("people").select("id,shipd_handle_status").eq("id", payee.personId).single();
     if (personError) throw personError;
-    if (person.shipd_handle_status === "matched") return Response.json({ error: "This username was matched to an approved receipt. Ask a Villix administrator to change it." }, { status: 409 });
+    if (person.shipd_handle_status === "matched") return Response.json({ error: "This username is locked. Ask a Villix administrator to change it." }, { status: 409 });
     const { error: updateError } = await admin.from("people").update({ handle, shipd_handle_status: "claimed", shipd_handle_matched_at: null }).eq("id", payee.personId);
     if (updateError) throw updateError;
     await admin.from("contributor_applications").update({ shipd_handle: handle, shipd_handle_status: "claimed" }).eq("person_id", payee.personId);

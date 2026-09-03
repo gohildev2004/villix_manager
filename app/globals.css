@@ -1069,13 +1069,17 @@ h1 { font-size: clamp(36px, 3.3vw, 48px); font-weight: 650; letter-spacing: -.04
 .payee-empty > span { color: #adb0ad; font-size: 30px; }
 .payee-empty h3 { margin: 10px 0 5px; }
 .payee-empty p { margin: 0; color: #8a8a8f; font-size: 12px; }
-.shipd-handle-form { width: 100%; display: grid; gap: 10px; }
-.shipd-handle-form label { font-size: 17px; font-weight: 700; letter-spacing: -.02em; }
-.shipd-handle-form > p { max-width: 720px; }
-.shipd-handle-form > div { display: flex; gap: 10px; margin-top: 8px; }
-.shipd-handle-form input { min-width: 0; height: 52px; flex: 1; padding: 0 16px; border: 1px solid #d8ddd7; border-radius: 14px; outline: 0; background: #fff; font: inherit; }
+.shipd-profile-card > .shipd-handle-form { padding: 27px; }
+.shipd-handle-form { width: 100%; display: grid; gap: 20px; }
+.shipd-field-copy { display: grid; gap: 6px; }
+.shipd-handle-form label { font-size: 13px; font-weight: 700; letter-spacing: -.01em; }
+.shipd-field-copy p { max-width: 670px; margin: 0; color: #77777d; font-size: 12px; line-height: 1.55; }
+.shipd-input-row { display: flex; align-items: stretch; gap: 10px; }
+.shipd-handle-form input { min-width: 0; height: 56px; flex: 1; padding: 0 17px; border: 1px solid #d8ddd7; border-radius: 15px; outline: 0; background: #fff; font: inherit; font-size: 15px; transition: border-color .18s ease,box-shadow .18s ease; }
 .shipd-handle-form input:focus { border-color: #78a770; box-shadow: 0 0 0 4px rgba(91,145,80,.11); }
-.shipd-handle-form button { min-width: 170px; border: 0; border-radius: 14px; background: #151716; color: #fff; font: inherit; font-weight: 680; cursor: pointer; }
+.shipd-handle-form button { min-width: 165px; padding: 0 20px; border: 0; border-radius: 15px; background: #151716; color: #fff; font: inherit; font-size: 13px; font-weight: 680; cursor: pointer; transition: transform .18s ease,background .18s ease; }
+.shipd-handle-form button:not(:disabled):hover { background: #262927; }
+.shipd-handle-form button:not(:disabled):active { transform: scale(.985); }
 .shipd-handle-form button:disabled { opacity: .55; cursor: default; }
 .shipd-handle-form .form-error { color: #92362e; font-size: 12px; }
 .payee-footer { padding: 28px 4px 0; display: flex; justify-content: space-between; gap: 20px; color: #96969b; font-size: 10px; }
@@ -1108,7 +1112,8 @@ h1 { font-size: clamp(36px, 3.3vw, 48px); font-weight: 650; letter-spacing: -.04
   .payee-metrics > div { min-height: 116px; }
   .payee-history-list > div { align-items: flex-start; }
   .payee-footer { flex-direction: column; }
-  .shipd-handle-form > div { flex-direction: column; }
+  .shipd-profile-card > .shipd-handle-form { padding: 23px 20px 24px; }
+  .shipd-input-row { flex-direction: column; }
   .shipd-handle-form button { min-height: 52px; }
   .application-summary { grid-template-columns: 1fr; }
   .application-summary > div { min-height: 105px; border-right: 0; border-bottom: 1px solid var(--line); }
