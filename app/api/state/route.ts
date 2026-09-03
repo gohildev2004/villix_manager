@@ -12,8 +12,9 @@ function displayDate(value: string) {
 export async function GET() {
   try {
     const { actor, supabase } = await requireAdmin();
-    const [peopleQuery, entriesQuery, receiptEntriesQuery, receiptsQuery, auditQuery, batchQuery, ruleVersionsQuery, rulesQuery, settingsQuery] = await Promise.all([
+    const [peopleQuery, applicationsQuery, entriesQuery, receiptEntriesQuery, receiptsQuery, auditQuery, batchQuery, ruleVersionsQuery, rulesQuery, settingsQuery] = await Promise.all([
       supabase.from("people").select("*,payee_profiles(onboarding_status,payout_provider,provider_contact_id,provider_recipient_id,bank_last4,ifsc,legal_name),payee_portal_accounts(status,provider_portal_status,invited_at,last_seen_at)").order("display_name"),
+      supabase.from("contributor_applications").select("id,first_name,last_name,email,team_lead_id,person_id,shipd_handle,shipd_handle_status,status,invitation_status,invitation_sent_at,last_error,source,created_at,updated_at").order("created_at", { ascending: false }),
       supabase.from("contribution_entries").select("*, receipts!inner(filename,receipt_date,status)").in("receipts.status", ["verified", "approved"]).order("created_at"),
       supabase.from("contribution_entries").select("*, receipts!inner(filename,receipt_date,status)").order("created_at"),
       supabase.from("receipts").select("*, contribution_entries(count)").order("receipt_date", { ascending: false }).order("created_at", { ascending: false }),
@@ -23,7 +24,7 @@ export async function GET() {
       supabase.from("contribution_rules").select("version,type,label,description,payout_bps,active").order("type"),
       supabase.from("workspace_settings").select("value").eq("key", "payout_policy").maybeSingle(),
     ]);
-    for (const query of [peopleQuery, entriesQuery, receiptEntriesQuery, receiptsQuery, auditQuery, batchQuery, ruleVersionsQuery, rulesQuery, settingsQuery]) if (query.error) throw query.error;
+    for (const query of [peopleQuery, applicationsQuery, entriesQuery, receiptEntriesQuery, receiptsQuery, auditQuery, batchQuery, ruleVersionsQuery, rulesQuery, settingsQuery]) if (query.error) throw query.error;
 
     const people = (peopleQuery.data ?? []).map((person) => {
       const profile = Array.isArray(person.payee_profiles) ? person.payee_profiles[0] : person.payee_profiles;
@@ -50,6 +51,23 @@ export async function GET() {
       portalLastSeenAt: portal?.last_seen_at ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(portal.last_seen_at)) : null,
       payoutMethod: person.role === "team_lead" ? "Team payout account" : person.role === "admin" ? "Not applicable" : person.team_lead_id ? "Contractor account" : "Direct contractor",
     }); });
+    const applications = (applicationsQuery.data ?? []).map((application) => ({
+      id: application.id,
+      name: `${application.first_name} ${application.last_name}`.trim(),
+      email: application.email,
+      teamLeadId: application.team_lead_id,
+      teamLeadName: people.find((person) => person.id === application.team_lead_id)?.name ?? "Unavailable team lead",
+      personId: application.person_id,
+      shipdHandle: application.shipd_handle,
+      shipdHandleStatus: application.shipd_handle_status,
+      status: application.status,
+      invitationStatus: application.invitation_status,
+      invitationSentAt: application.invitation_sent_at,
+      lastError: application.last_error,
+      source: application.source,
+      createdAt: application.created_at,
+      updatedAt: application.updated_at,
+    }));
     const mapEntry = (entry: NonNullable<typeof entriesQuery.data>[number]) => ({
       id: entry.id,
       personId: entry.contributor_id,
@@ -92,6 +110,7 @@ export async function GET() {
 
     return Response.json({
       people,
+      applications,
       entries,
       receiptEntries,
       receipts,

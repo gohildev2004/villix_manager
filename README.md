@@ -4,6 +4,8 @@ Private operations software for Villix administrators. It manages contributors a
 
 Owner account setup, security, provider onboarding, testing, weekly operations, and go-live requirements are tracked in [OWNER_SETUP_AND_LAUNCH.md](./OWNER_SETUP_AND_LAUNCH.md).
 
+The public `villix.in` contributor form is connected through the server-only contract in [CONTRIBUTOR_APPLICATION_INTEGRATION.md](./CONTRIBUTOR_APPLICATION_INTEGRATION.md). The API creates restricted portal access, sends the applicant a private invitation, and lets the applicant claim an intended or existing Shipd.ai username that remains editable until an approved receipt matches it.
+
 ## Reliability workflow
 
 Every push and pull request to `main` runs GitHub Actions on Node 22. The workflow lints the repository, executes behavioral payout and receipt tests, builds the production application, and runs integration assertions. The behavioral suite verifies actual calculation outcomes, including bonus retention, the 50% problem split, direct and team-lead routing, historical assignments, unknown rules, unmatched contributors, and settlement adjustments.

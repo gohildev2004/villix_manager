@@ -28,6 +28,8 @@ This document is the service inventory for Villix Manager. It records what each 
 6. Resend sends contributor onboarding invitations. Supabase Auth sends one-time sign-in codes.
 7. After RazorpayX is approved and live mode is intentionally enabled, Villix Manager will create INR payouts and reconcile their status through RazorpayX webhooks.
 
+The separate `villix.in` landing site may submit contributor applications to Villix Manager through an authenticated server-to-server API. Its browser never receives the application API key. Accepted applicants receive portal access and an invitation through the existing Resend integration.
+
 ## 1. Supabase
 
 ### What it provides
@@ -49,6 +51,7 @@ This document is the service inventory for Villix Manager. It records what each 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SECRET_KEY`
+- `CONTRIBUTOR_APPLICATION_API_KEY` (shared only with the trusted landing-page server)
 
 The publishable key may be used by the browser with Row Level Security. `SUPABASE_SECRET_KEY` is server-only and must never use the `NEXT_PUBLIC_` prefix.
 

@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { requirePayee } from "@/lib/payee-server";
 import { contributorPortalPath } from "@/lib/contributor-portal";
+import ShipdHandleForm from "./ShipdHandleForm";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Contributor portal", robots: { index: false, follow: false } };
@@ -26,14 +27,20 @@ export default async function PayeePage() {
   try { context = await requirePayee(); }
   catch { await session.auth.signOut(); redirect(`${loginPath}?error=not_authorized`); }
   const { admin, payee } = context;
+  if (!payee.personId) {
+    const { data: application, error } = await admin.from("contributor_applications").select("first_name,last_name,email,status").eq("id", payee.applicationId!).single();
+    if (error || !application) redirect(`${loginPath}?error=not_authorized`);
+    return <main className="payee-page"><header className="payee-topbar"><div className="payee-brand"><Image src="/villix-logo.svg" alt="Villix" width={44} height={34} style={{ width: 44, height: 34 }} priority unoptimized /><span>Villix Contributor</span></div><a href={contributorPortalPath(host, "signout")}>Sign out</a></header><div className="payee-content"><section className="payee-welcome"><span>Complete your profile</span><h1>Welcome, {application.first_name}.</h1><p>Your team selection is already saved. Add the Shipd.ai username you use now or intend to create so Villix can match future receipt entries to you.</p></section><section className="payee-status-card"><ShipdHandleForm firstSetup /></section><footer className="payee-footer"><span>Signed in as {application.email}</span><span>You can return later to update an unavailable username.</span></footer></div></main>;
+  }
   const [{ data: person, error: personError }, { data: payouts, error: payoutError }] = await Promise.all([
-    admin.from("people").select("id,display_name,handle,email,role,team_lead_id,status,payee_profiles(legal_name,onboarding_status,payout_provider,bank_last4,ifsc)").eq("id", payee.personId).single(),
+    admin.from("people").select("id,display_name,handle,email,role,team_lead_id,status,shipd_handle_status,payee_profiles(legal_name,onboarding_status,payout_provider,bank_last4,ifsc)").eq("id", payee.personId).single(),
     admin.from("payout_recipients").select("id,status,payout_amount_minor,payout_currency,paid_at,created_at,payout_batches(period_start,period_end,payout_date)").eq("person_id", payee.personId).order("created_at", { ascending: false }).limit(20),
   ]);
   if (personError || !person) redirect(`${loginPath}?error=not_authorized`);
   if (payoutError) throw payoutError;
   const profile = Array.isArray(person.payee_profiles) ? person.payee_profiles[0] : person.payee_profiles;
   const ready = profile?.onboarding_status === "ready" && Boolean(profile.bank_last4);
+  const paidThroughLead = person.role === "contributor" && Boolean(person.team_lead_id);
   const hostedPortalEnabled = process.env.RAZORPAYX_VENDOR_PORTAL_ENABLED === "true";
   const vendorPortalUrl = process.env.RAZORPAYX_VENDOR_PORTAL_URL || "https://x.razorpay.com/vendor-portal/";
   const paidTotal = (payouts ?? []).filter((item) => item.status === "paid").reduce((sum, item) => sum + item.payout_amount_minor, 0) / 100;
@@ -41,7 +48,8 @@ export default async function PayeePage() {
   return <main className="payee-page">
     <header className="payee-topbar"><div className="payee-brand"><Image src="/villix-logo.svg" alt="Villix" width={44} height={34} style={{ width: 44, height: 34 }} priority unoptimized /><span>Villix Contributor</span></div><a href={contributorPortalPath(host, "signout")}>Sign out</a></header>
     <div className="payee-content"><section className="payee-welcome"><span>Recipient workspace</span><h1>Welcome, {person.display_name}.</h1><p>Manage your payout readiness and follow every Villix payment without entering the administrator workspace.</p></section>
-      <section className="payee-status-card"><div><span className={`payee-status-dot ${ready ? "ready" : "pending"}`}/><div><small>Payout status</small><h2>{ready ? "Ready to receive" : hostedPortalEnabled ? "Finish secure onboarding" : "RazorpayX activation pending"}</h2><p>{ready ? `Verified Indian bank account ending ${profile?.bank_last4}.` : hostedPortalEnabled ? "RazorpayX will securely collect and validate your bank details. Villix will only receive masked account information and provider references." : "Villix is currently completing its RazorpayX business setup. No bank information is being requested or stored during test mode."}</p></div></div>{!ready && hostedPortalEnabled && <a className="payee-primary-action" href={vendorPortalUrl} target="_blank" rel="noreferrer">Continue in RazorpayX <span>↗</span></a>}</section>
+      <section className="payee-status-card"><div><span className={`payee-status-dot ${ready || paidThroughLead ? "ready" : "pending"}`}/><div><small>Payout status</small><h2>{paidThroughLead ? "Paid through your team leader" : ready ? "Ready to receive" : hostedPortalEnabled ? "Finish secure onboarding" : "RazorpayX activation pending"}</h2><p>{paidThroughLead ? "Your entire eligible Villix payout is included in your team leader’s weekly payment. You do not need to add a bank account here." : ready ? `Verified Indian bank account ending ${profile?.bank_last4}.` : hostedPortalEnabled ? "RazorpayX will securely collect and validate your bank details. Villix will only receive masked account information and provider references." : "Villix is currently completing its RazorpayX business setup. No bank information is being requested or stored during test mode."}</p></div></div>{!paidThroughLead && !ready && hostedPortalEnabled && <a className="payee-primary-action" href={vendorPortalUrl} target="_blank" rel="noreferrer">Continue in RazorpayX <span>↗</span></a>}</section>
+      <section className="payee-history"><div className="payee-section-heading"><div><span>Receipt matching</span><h2>Your Shipd.ai username</h2></div><small>{person.shipd_handle_status === "matched" ? "Verified" : "Editable"}</small></div><ShipdHandleForm initialHandle={person.handle} locked={person.shipd_handle_status === "matched"} /></section>
       <section className="payee-metrics"><div><span>Total paid</span><strong>{inr.format(paidTotal)}</strong><small>Confirmed Villix payouts</small></div><div><span>Payments</span><strong>{(payouts ?? []).length}</strong><small>All recorded payout instructions</small></div><div><span>Payment route</span><strong>{person.role === "team_lead" ? "Team lead" : "Direct"}</strong><small>Indian bank account · INR</small></div></section>
       <section className="payee-history"><div className="payee-section-heading"><div><span>Payment history</span><h2>Weekly payouts</h2></div><small>Most recent 20</small></div>{(payouts ?? []).length ? <div className="payee-history-list">{(payouts ?? []).map((item) => { const batch = Array.isArray(item.payout_batches) ? item.payout_batches[0] : item.payout_batches; return <div key={item.id}><div><b>{batch ? `${date(batch.period_start)} – ${date(batch.period_end)}` : "Weekly Villix payout"}</b><span>Scheduled {date(batch?.payout_date ?? null)}</span></div><div><strong>{inr.format(item.payout_amount_minor / 100)}</strong><span className={`payee-payment-status ${item.status}`}>{item.status}</span></div></div>; })}</div> : <div className="payee-empty"><span>○</span><h3>No payments yet</h3><p>Your approved weekly payouts will appear here.</p></div>}</section>
       <footer className="payee-footer"><span>Signed in as {person.email}</span><span>Need help? Contact your Villix administrator.</span></footer>

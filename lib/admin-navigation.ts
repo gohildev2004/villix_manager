@@ -1,4 +1,4 @@
-export const adminViews = ["overview", "inbox", "people", "teams", "payouts", "reconciliation", "audit", "rules", "health", "settings"] as const;
+export const adminViews = ["overview", "applications", "inbox", "people", "teams", "payouts", "reconciliation", "audit", "rules", "health", "settings"] as const;
 
 export type AdminView = (typeof adminViews)[number];
 

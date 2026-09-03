@@ -23,6 +23,8 @@ services:
         value: https://villix-manager-staging.onrender.com/payee
       - key: NEXT_PUBLIC_CONTRIBUTOR_PORTAL_URL
         value: https://villix-manager-staging.onrender.com/payee
+      - key: CONTRIBUTOR_APPLICATION_API_KEY
+        sync: false
       - key: INVITATION_SMTP_HOST
         value: smtp.gmail.com
       - key: INVITATION_SMTP_PORT

@@ -1,15 +1,9 @@
 import { addAudit, errorResponse, requireAdmin } from "@/lib/villix-server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { normalizeShipdHandle } from "@/lib/shipd-handle";
 
 const roles = new Map([["Contributor", "contributor"], ["Team lead", "team_lead"], ["Admin", "admin"]]);
 const statuses = new Map([["Active", "active"], ["Paused", "paused"]]);
-
-function normalizedHandle(value: unknown) {
-  const handle = String(value ?? "").trim();
-  const result = handle.startsWith("@") ? handle : `@${handle}`;
-  if (!/^@[A-Za-z0-9_.-]{2,64}$/.test(result)) throw new Error("Enter a valid unique receipt handle.");
-  return result;
-}
 
 export async function POST(request: Request) {
   let personId = "";
@@ -18,7 +12,7 @@ export async function POST(request: Request) {
     const body = await request.json() as Record<string, unknown>;
     const name = String(body.name ?? "").trim();
     const email = String(body.email ?? "").trim().toLowerCase();
-    const handle = normalizedHandle(body.handle);
+    const handle = normalizeShipdHandle(body.handle);
     const role = roles.get(String(body.role));
     const currency = "INR";
     const teamLeadId = role === "contributor" && body.teamLeadId ? String(body.teamLeadId) : null;
@@ -59,7 +53,7 @@ export async function PATCH(request: Request) {
 
     const name = body.name === undefined ? current.display_name : String(body.name).trim();
     const email = body.email === undefined ? current.email : String(body.email).trim().toLowerCase();
-    const handle = body.handle === undefined ? current.handle : normalizedHandle(body.handle);
+    const handle = body.handle === undefined ? current.handle : normalizeShipdHandle(body.handle);
     if (name.length < 2 || name.length > 120) throw new Error("Enter a name between 2 and 120 characters.");
     if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error("Enter a valid email address.");
     const role = body.role === undefined ? current.role : roles.get(String(body.role));
@@ -85,7 +79,8 @@ export async function PATCH(request: Request) {
       const { error } = await createAdminClient().auth.admin.updateUserById(portal.user_id, { email, email_confirm: true });
       if (error) throw error;
     }
-    const { error: updateError } = await supabase.from("people").update({ display_name: name, email, handle, role, team_lead_id: teamLeadId, status, payout_method: payoutMethod, currency }).eq("id", id);
+    const handleChanged = handle.toLowerCase() !== current.handle.toLowerCase();
+    const { error: updateError } = await supabase.from("people").update({ display_name: name, email, handle, role, team_lead_id: teamLeadId, status, payout_method: payoutMethod, currency, ...(handleChanged ? { shipd_handle_status: "claimed", shipd_handle_matched_at: null } : {}) }).eq("id", id);
     if (updateError) {
       if (email !== current.email && portal?.user_id && process.env.SUPABASE_SECRET_KEY) {
         await createAdminClient().auth.admin.updateUserById(portal.user_id, { email: current.email, email_confirm: true });
@@ -94,6 +89,10 @@ export async function PATCH(request: Request) {
     }
     const { error: profileError } = await supabase.from("payee_profiles").update({ currency }).eq("person_id", id);
     if (profileError) throw profileError;
+    if (handleChanged) {
+      const { error: applicationError } = await supabase.from("contributor_applications").update({ shipd_handle: handle, shipd_handle_status: "claimed" }).eq("person_id", id);
+      if (applicationError) throw applicationError;
+    }
     const remainsFinalRecipient = status === "active" && (role === "team_lead" || (role === "contributor" && !teamLeadId));
     if (!remainsFinalRecipient && portal?.user_id) {
       const { error: portalError } = await supabase.from("payee_portal_accounts").update({ status: "suspended" }).eq("person_id", id);

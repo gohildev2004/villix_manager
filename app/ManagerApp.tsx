@@ -28,7 +28,8 @@ type OperationalHealthCheck = { id: string; label: string; status: HealthCheckSt
 type OperationalHealth = { status: HealthCheckStatus; environment: string; checkedAt: string; checks: OperationalHealthCheck[]; counts: { receiptsNeedingReview: number; stuckPayouts: number; failedTransfers: number; failedWebhooks: number }; lastWebhookAt: string | null };
 type HealthRunbook = { monitors: string; impact: string; steps: string[]; action?: { label: string; view: View } };
 type InvitationResult = { ok: boolean; sent: number; failed: number; failedPersonIds: string[] };
-type ServerState = { people: Person[]; entries: Entry[]; receiptEntries: Entry[]; receipts: Receipt[]; audit: AuditEvent[]; batchStatus: "Draft" | "Approved"; payoutDate: string; payoutDay: PayoutWeekday; paymentStatuses: Record<string, PaymentStatus>; payoutSnapshot: PayoutSnapshot | null; providerReadiness: ProviderReadiness; ruleVersions: RuleVersion[]; rules: ContributionRule[]; actor: { name: string; email: string; role: string }; persistence: string };
+type ContributorApplication = { id: string; name: string; email: string; teamLeadId: string; teamLeadName: string; personId: string | null; shipdHandle: string | null; shipdHandleStatus: "missing" | "claimed" | "matched" | "conflict"; status: "submitted" | "invited" | "profile_complete" | "declined"; invitationStatus: "pending" | "sent" | "failed"; invitationSentAt: string | null; lastError: string | null; source: string; createdAt: string; updatedAt: string };
+type ServerState = { people: Person[]; applications: ContributorApplication[]; entries: Entry[]; receiptEntries: Entry[]; receipts: Receipt[]; audit: AuditEvent[]; batchStatus: "Draft" | "Approved"; payoutDate: string; payoutDay: PayoutWeekday; paymentStatuses: Record<string, PaymentStatus>; payoutSnapshot: PayoutSnapshot | null; providerReadiness: ProviderReadiness; ruleVersions: RuleVersion[]; rules: ContributionRule[]; actor: { name: string; email: string; role: string }; persistence: string };
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
@@ -57,6 +58,7 @@ const healthRunbooks: Record<string, HealthRunbook> = {
   database: { monitors: "Confirms the application can read Villix workspace data from Supabase.", impact: "People, receipts, rules, and payouts may not load or save while this check is failing.", steps: ["Open the Supabase project and confirm it is healthy and not paused.", "In Render, verify NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY belong to the same Villix project.", "Review the latest Render and Supabase database logs for authentication, network, or policy errors.", "Correct the configuration, redeploy the service, then run the checks again."], action: { label: "Open settings", view: "settings" } },
   storage: { monitors: "Confirms the private Supabase bucket used for source receipt PDFs is available.", impact: "New receipts cannot be stored reliably, so imports should remain paused.", steps: ["Open Supabase Storage and confirm the receipt-files bucket exists and is private.", "Check the bucket policies and confirm the server secret can list and upload files.", "Confirm the app is connected to the intended Supabase project, not staging or another workspace.", "Repair the bucket or policy, then import a test PDF and run the checks again."], action: { label: "Open inbox", view: "inbox" } },
   configuration: { monitors: "Checks required server-only values and, when live payouts are enabled, RazorpayX credentials.", impact: "Imports, authentication, or payout operations may be unavailable. Live payouts must remain locked.", steps: ["Open Render → Environment for the active Villix service.", "Confirm the Supabase URL, publishable key, and SUPABASE_SECRET_KEY are present without exposing them in screenshots.", "If live payouts are enabled, also confirm the RazorpayX key, secret, account number, and webhook secret.", "Save the variables, redeploy, and run the checks again. Never put a server secret in a NEXT_PUBLIC_ variable."], action: { label: "Open settings", view: "settings" } },
+  applications: { monitors: "Confirms the public landing-page intake endpoints are protected by a strong shared server secret.", impact: "New contributor applications cannot be accepted safely until this is fixed.", steps: ["Generate one random secret with at least 32 characters.", "Add it as CONTRIBUTOR_APPLICATION_API_KEY in both Villix Manager and the landing-page server environments.", "Never expose this value in browser code or a NEXT_PUBLIC_ variable.", "Redeploy both services, submit a test application, then run these checks again."], action: { label: "Open settings", view: "settings" } },
   invitations: { monitors: "Confirms Villix can send private contributor onboarding invitations through its server-side email provider.", impact: "Portal access can still be enabled, but administrators cannot send onboarding invitations directly from Villix Manager.", steps: ["Open Resend and verify the villix.in sending domain.", "Create a Resend API key, then add it in Render as RESEND_API_KEY for the active service.", "Confirm INVITATION_FROM_EMAIL is admin@villix.in. Keep the API key server-only and out of screenshots.", "Save, redeploy, send one staging invitation, then run the checks again."], action: { label: "Open settings", view: "settings" } },
   receipts: { monitors: "Counts receipts with unmatched people, unknown types, source mismatches, or other review issues.", impact: "Affected receipt entries are excluded from payout approval until an administrator resolves them.", steps: ["Open Inbox and select the receipt marked Needs review.", "Match every imported handle to the correct contributor or create the missing person.", "Resolve unknown contribution types and verify the extracted rows equal the printed total.", "Approve the receipt only after every issue is cleared; otherwise delete it and import a corrected PDF."], action: { label: "Review receipts", view: "inbox" } },
   payouts: { monitors: "Finds approved payout batches that have remained in processing for more than 30 minutes.", impact: "Recipients may be waiting, but retrying prematurely could create duplicate payment attempts.", steps: ["Keep the weekly payout locked and open Reconciliation.", "Check whether RazorpayX received the batch and compare provider references with Villix records.", "Run status sync before attempting any retry.", "If the provider has no payment, inspect Render logs and retry only after the existing idempotent attempt is confirmed safe."], action: { label: "Open reconciliation", view: "reconciliation" } },
@@ -68,6 +70,7 @@ const healthRunbooks: Record<string, HealthRunbook> = {
 const viewCopy: Record<View, { eyebrow: string; title: string; subtitle: string }> = {
   overview: { eyebrow: "Operations", title: "Good morning.", subtitle: "Everything requiring attention is collected here." },
   inbox: { eyebrow: "Review queue", title: "Inbox", subtitle: "Verify source records before they affect a payout." },
+  applications: { eyebrow: "Contributor intake", title: "Applications", subtitle: "Track landing-page applicants from invitation through profile completion." },
   people: { eyebrow: "Directory", title: "People", subtitle: "Roles, handles, payment routes, and access in one place." },
   teams: { eyebrow: "Hierarchy", title: "Teams", subtitle: "Understand who rolls up to each payout recipient." },
   payouts: { eyebrow: "Weekly distribution", title: "Payouts", subtitle: "A complete, explainable distribution before money moves." },
@@ -95,6 +98,7 @@ export default function ManagerApp({ initialView = "overview" }: { initialView?:
   const [view, setActiveView] = useState<View>(initialView);
   const [initialLoading, setInitialLoading] = useState(true);
   const [people, setPeople] = useState<Person[]>(initialPeople);
+  const [applications, setApplications] = useState<ContributorApplication[]>([]);
   const [entries, setEntries] = useState<Entry[]>(initialEntries);
   const [receiptEntries, setReceiptEntries] = useState<Entry[]>(initialEntries);
   const [receipts, setReceipts] = useState<Receipt[]>(initialReceipts);
@@ -154,7 +158,7 @@ export default function ManagerApp({ initialView = "overview" }: { initialView?:
         api<ServerState>("/api/state", { cache: "no-store" }),
         api<OperationalHealth>("/api/monitoring", { cache: "no-store" }).catch(() => unavailableHealth),
       ]);
-      setPeople(state.people); setEntries(state.entries); setReceiptEntries(state.receiptEntries); setReceipts(state.receipts); setAudit(state.audit);
+      setPeople(state.people); setApplications(state.applications); setEntries(state.entries); setReceiptEntries(state.receiptEntries); setReceipts(state.receipts); setAudit(state.audit);
       setBatchStatus(state.batchStatus); setPayoutDay(state.payoutDay); setPayoutDate(state.payoutDate || scheduledPayoutDate(activePayoutPeriod.end, state.payoutDay)); setPaymentStatuses(state.paymentStatuses);
       setPayoutSnapshot(state.payoutSnapshot); setProviderReadiness(state.providerReadiness);
       setOperationalHealth(health);
@@ -179,7 +183,7 @@ export default function ManagerApp({ initialView = "overview" }: { initialView?:
       window.clearTimeout(timer);
       timer = window.setTimeout(() => void refreshState(), 300);
     };
-    const tables = ["people", "payee_profiles", "payee_portal_accounts", "receipts", "contribution_entries", "audit_events", "payout_batches", "payout_recipients", "payment_attempts", "workspace_settings", "rule_versions", "contribution_rules", "provider_webhook_events"];
+    const tables = ["people", "contributor_applications", "payee_profiles", "payee_portal_accounts", "receipts", "contribution_entries", "audit_events", "payout_batches", "payout_recipients", "payment_attempts", "workspace_settings", "rule_versions", "contribution_rules", "provider_webhook_events"];
     let channel = supabase.channel("villix-admin-live");
     for (const table of tables) channel = channel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleRefresh);
     channel.subscribe((status) => { if (status === "SUBSCRIBED") scheduleRefresh(); });
@@ -279,6 +283,14 @@ export default function ManagerApp({ initialView = "overview" }: { initialView?:
     notify("Payee portal access suspended");
   }
 
+  async function updateApplication(id: string, action: "resend" | "decline") {
+    try {
+      await api("/api/contributor-applications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action }) });
+      await refreshState();
+      notify(action === "resend" ? "Contributor invitation sent" : "Application declined");
+    } catch (error) { notify(error instanceof Error ? error.message : "Application could not be updated"); }
+  }
+
   async function resolveReceiptHandle(receiptId: string, handle: string, personId: string) {
     await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: receiptId, action: "resolve_handle", handle, personId }) });
     setReviewReceipt(null); await refreshState(); notify(`${handle} matched and receipt verified`);
@@ -348,6 +360,7 @@ export default function ManagerApp({ initialView = "overview" }: { initialView?:
   const navigation: Array<{ group: string; items: Array<{ id: View; label: string; symbol: string; count?: number }> }> = [
     { group: "Workspace", items: [
       { id: "overview", label: "Overview", symbol: "◫" },
+      { id: "applications", label: "Applications", symbol: "＋", count: applications.filter((application) => application.status !== "profile_complete" && application.status !== "declined").length || undefined },
       { id: "inbox", label: "Inbox", symbol: "▱", count: receipts.filter((receipt) => receipt.status !== "Approved").length },
       { id: "people", label: "People", symbol: "◉" },
       { id: "teams", label: "Teams", symbol: "⌘" },
@@ -395,6 +408,7 @@ export default function ManagerApp({ initialView = "overview" }: { initialView?:
 
           {initialLoading ? <ViewSkeleton view={view} /> : <>
             {view === "overview" && <Overview totals={totals} openIssues={openIssues} receipts={receipts} payoutRows={payoutRows} people={people} monitoring={operationalHealth} invitePortals={invitePayeePortals} setView={setView} />}
+            {view === "applications" && <Applications applications={applications} update={updateApplication} openPeople={() => setView("people")} />}
             {view === "inbox" && <Inbox receipts={receipts} entries={receiptEntries} people={people} approveReceipt={async (id) => { try { await api("/api/receipts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) }); await refreshState(); notify("Receipt approved"); } catch (error) { notify(error instanceof Error ? error.message : "Receipt could not be approved"); } }} deleteReceipt={deleteReceipt} reviewReceipt={setReviewReceipt} openImport={() => fileRef.current?.click()} />}
             {view === "people" && <People people={people} entries={entries} query={query} setQuery={setQuery} updatePerson={updatePerson} editPerson={savePersonDetails} invitePortal={async (id) => invitePayeePortals([id])} suspendPortal={suspendPayeePortal} removePerson={removePerson} openAdd={() => setPersonModal(true)} />}
             {view === "teams" && <Teams people={people} entries={entries} updatePerson={updatePerson} />}
@@ -487,6 +501,44 @@ function HealthCheckCard({ check, openView }: { check: OperationalHealthCheck; o
       <div className="health-recovery"><span className="health-recovery-label">How to fix this</span><ol>{runbook.steps.map((step) => <li key={step}>{step}</li>)}</ol>{runbook.action && <button onClick={() => openView(runbook.action!.view)}>{runbook.action.label} →</button>}</div>
     </div>
   </details>;
+}
+
+function Applications({ applications, update, openPeople }: { applications: ContributorApplication[]; update: (id: string, action: "resend" | "decline") => Promise<void>; openPeople: () => void }) {
+  const [filter, setFilter] = useState<"Active" | "Completed" | "Declined">("Active");
+  const [busy, setBusy] = useState<string | null>(null);
+  const visible = applications.filter((application) => filter === "Active"
+    ? application.status === "submitted" || application.status === "invited"
+    : filter === "Completed" ? application.status === "profile_complete" : application.status === "declined");
+  const incomplete = applications.filter((application) => application.status === "submitted" || application.status === "invited").length;
+  const failed = applications.filter((application) => application.invitationStatus === "failed" && application.status !== "declined").length;
+  async function act(id: string, action: "resend" | "decline") {
+    if (action === "decline" && !window.confirm("Decline this application? The applicant will no longer be able to finish profile setup.")) return;
+    setBusy(id);
+    try { await update(id, action); } finally { setBusy(null); }
+  }
+  return <div className="stack">
+    <section className="surface application-summary">
+      <div><span>Waiting for setup</span><strong>{incomplete}</strong><small>Invited applicants who have not completed their profile</small></div>
+      <div><span>Profiles completed</span><strong>{applications.filter((application) => application.status === "profile_complete").length}</strong><small>People records created and ready for receipt matching</small></div>
+      <div><span>Delivery issues</span><strong className={failed ? "warning-text" : ""}>{failed}</strong><small>{failed ? "Retry these invitations" : "No invitation failures"}</small></div>
+    </section>
+    <div className="command-row"><div className="segmented">{(["Active", "Completed", "Declined"] as const).map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}</button>)}</div>{filter === "Completed" && <button className="button secondary" onClick={openPeople}>Open People</button>}</div>
+    <section className="surface table-surface"><div className="application-table">
+      <div className="application-row application-labels"><span>Applicant</span><span>Team leader</span><span>Shipd.ai username</span><span>Progress</span><span>Invitation</span><span></span></div>
+      {visible.map((application) => {
+        const progress = application.status === "profile_complete" ? "Profile complete" : application.status === "declined" ? "Declined" : application.status === "invited" ? "Invitation sent" : "Submitted";
+        const invite = application.invitationStatus === "failed" ? "Delivery failed" : application.invitationStatus === "sent" ? "Sent" : "Pending";
+        return <div className="application-row" key={application.id}>
+          <div className="application-person"><Avatar name={application.name}/><span><b>{application.name}</b><small>{application.email}</small><small>{new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(application.createdAt))}</small></span></div>
+          <span>{application.teamLeadName}</span>
+          <div><b>{application.shipdHandle ?? "Not added yet"}</b><small>{application.shipdHandleStatus === "matched" ? "Locked by approved receipt" : application.shipdHandle ? "Editable until receipt match" : "Added in contributor portal"}</small></div>
+          <Status value={progress}/>
+          <div><Status value={invite}/>{application.lastError && <small className="application-error" title={application.lastError}>Open delivery error</small>}</div>
+          <div className="row-actions">{application.status === "profile_complete" ? <button className="profile-button" onClick={openPeople}>View person</button> : application.status !== "declined" && <><button disabled={busy === application.id} onClick={() => void act(application.id, "resend")}>{busy === application.id ? "Working…" : "Send again"}</button><button className="danger-text-button" disabled={busy === application.id} onClick={() => void act(application.id, "decline")}>Decline</button></>}</div>
+        </div>;
+      })}
+    </div>{!visible.length && <Empty title={`No ${filter.toLowerCase()} applications`} detail="New landing-page submissions will appear here automatically." />}</section>
+  </div>;
 }
 
 function RecipientOnboarding({ people, invitePortals, openPeople }: { people: Person[]; invitePortals: (ids: string[]) => Promise<string>; openPeople: () => void }) {

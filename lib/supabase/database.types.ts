@@ -74,6 +74,78 @@ export type Database = {
         }
         Relationships: []
       }
+      contributor_applications: {
+        Row: {
+          auth_user_id: string
+          created_at: string
+          email: string
+          first_name: string
+          id: string
+          invitation_sent_at: string | null
+          invitation_status: string
+          last_error: string | null
+          last_name: string
+          person_id: string | null
+          shipd_handle: string | null
+          shipd_handle_status: string
+          source: string
+          status: string
+          team_lead_id: string
+          updated_at: string
+        }
+        Insert: {
+          auth_user_id: string
+          created_at?: string
+          email: string
+          first_name: string
+          id?: string
+          invitation_sent_at?: string | null
+          invitation_status?: string
+          last_error?: string | null
+          last_name: string
+          person_id?: string | null
+          shipd_handle?: string | null
+          shipd_handle_status?: string
+          source?: string
+          status?: string
+          team_lead_id: string
+          updated_at?: string
+        }
+        Update: {
+          auth_user_id?: string
+          created_at?: string
+          email?: string
+          first_name?: string
+          id?: string
+          invitation_sent_at?: string | null
+          invitation_status?: string
+          last_error?: string | null
+          last_name?: string
+          person_id?: string | null
+          shipd_handle?: string | null
+          shipd_handle_status?: string
+          source?: string
+          status?: string
+          team_lead_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contributor_applications_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: true
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contributor_applications_team_lead_id_fkey"
+            columns: ["team_lead_id"]
+            isOneToOne: false
+            referencedRelation: "people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contribution_entries: {
         Row: {
           contributor_id: string | null
@@ -577,6 +649,8 @@ export type Database = {
           id: string
           payout_method: string
           role: string
+          shipd_handle_matched_at: string | null
+          shipd_handle_status: string
           status: string
           team_lead_id: string | null
           updated_at: string
@@ -591,6 +665,8 @@ export type Database = {
           id?: string
           payout_method?: string
           role: string
+          shipd_handle_matched_at?: string | null
+          shipd_handle_status?: string
           status?: string
           team_lead_id?: string | null
           updated_at?: string
@@ -605,6 +681,8 @@ export type Database = {
           id?: string
           payout_method?: string
           role?: string
+          shipd_handle_matched_at?: string | null
+          shipd_handle_status?: string
           status?: string
           team_lead_id?: string | null
           updated_at?: string
@@ -804,6 +882,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      complete_contributor_application: {
+        Args: { target_application_id: string; target_auth_user_id: string; target_handle: string }
+        Returns: string
+      }
       create_rule_version: { Args: never; Returns: number }
       publish_rule_version: {
         Args: { effective_date?: string; target_version: number }

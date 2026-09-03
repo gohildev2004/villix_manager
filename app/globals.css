@@ -1069,7 +1069,34 @@ h1 { font-size: clamp(36px, 3.3vw, 48px); font-weight: 650; letter-spacing: -.04
 .payee-empty > span { color: #adb0ad; font-size: 30px; }
 .payee-empty h3 { margin: 10px 0 5px; }
 .payee-empty p { margin: 0; color: #8a8a8f; font-size: 12px; }
+.shipd-handle-form { width: 100%; display: grid; gap: 10px; }
+.shipd-handle-form label { font-size: 17px; font-weight: 700; letter-spacing: -.02em; }
+.shipd-handle-form > p { max-width: 720px; }
+.shipd-handle-form > div { display: flex; gap: 10px; margin-top: 8px; }
+.shipd-handle-form input { min-width: 0; height: 52px; flex: 1; padding: 0 16px; border: 1px solid #d8ddd7; border-radius: 14px; outline: 0; background: #fff; font: inherit; }
+.shipd-handle-form input:focus { border-color: #78a770; box-shadow: 0 0 0 4px rgba(91,145,80,.11); }
+.shipd-handle-form button { min-width: 170px; border: 0; border-radius: 14px; background: #151716; color: #fff; font: inherit; font-weight: 680; cursor: pointer; }
+.shipd-handle-form button:disabled { opacity: .55; cursor: default; }
+.shipd-handle-form .form-error { color: #92362e; font-size: 12px; }
 .payee-footer { padding: 28px 4px 0; display: flex; justify-content: space-between; gap: 20px; color: #96969b; font-size: 10px; }
+.application-summary { display: grid; grid-template-columns: repeat(3,1fr); overflow: hidden; }
+.application-summary > div { min-height: 132px; padding: 24px 27px; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
+.application-summary > div:last-child { border-right: 0; }
+.application-summary span, .application-summary small { color: var(--muted); font-size: 12px; }
+.application-summary strong { margin: 11px 0 7px; font-size: 29px; letter-spacing: -.04em; }
+.application-summary small { margin-top: auto; line-height: 1.4; }
+.warning-text { color: #a96500; }
+.application-table { min-width: 1080px; }
+.application-row { min-height: 96px; padding: 16px 24px; display: grid; grid-template-columns: minmax(245px,1.5fr) minmax(150px,.9fr) minmax(190px,1fr) minmax(130px,.75fr) minmax(120px,.7fr) minmax(180px,1fr); align-items: center; gap: 18px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.application-row:last-child { border-bottom: 0; }
+.application-labels { min-height: 50px; color: #8e8e93; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .09em; }
+.application-person { display: flex; align-items: center; gap: 12px; }
+.application-person > span:last-child, .application-row > div { min-width: 0; }
+.application-row b, .application-row small { display: block; }
+.application-row b { overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
+.application-row small { margin-top: 4px; color: #96969b; line-height: 1.35; }
+.application-error { color: #a23b32 !important; cursor: help; }
+.danger-text-button { color: #a23b32 !important; }
 @media (max-width: 720px) {
   .payee-login-card { padding: 32px 24px 25px; border-radius: 26px; }
   .payee-login-copy { margin-top: 52px; }
@@ -1081,4 +1108,8 @@ h1 { font-size: clamp(36px, 3.3vw, 48px); font-weight: 650; letter-spacing: -.04
   .payee-metrics > div { min-height: 116px; }
   .payee-history-list > div { align-items: flex-start; }
   .payee-footer { flex-direction: column; }
+  .shipd-handle-form > div { flex-direction: column; }
+  .shipd-handle-form button { min-height: 52px; }
+  .application-summary { grid-template-columns: 1fr; }
+  .application-summary > div { min-height: 105px; border-right: 0; border-bottom: 1px solid var(--line); }
 }

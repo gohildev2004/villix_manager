@@ -80,6 +80,7 @@ Verify every variable in Render → `villix-manager` → Environment. Secret val
 | `EMAIL_OTP_ENABLED` | Yes | `true` after admin OTP is verified |
 | `PAYEE_PORTAL_ORIGIN` | Yes | `https://contributor.villix.in` |
 | `NEXT_PUBLIC_CONTRIBUTOR_PORTAL_URL` | Yes | `https://contributor.villix.in` |
+| `CONTRIBUTOR_APPLICATION_API_KEY` | Yes when landing form launches | Same unique 32+ character server-only secret in Villix Manager and the landing-page server |
 | `SHIPD_API_KEY` | Only when sync is implemented | Rotated server-only Shipd key |
 | `RAZORPAYX_KEY_ID` | Later | RazorpayX test/live key ID |
 | `RAZORPAYX_KEY_SECRET` | Later | RazorpayX test/live secret |

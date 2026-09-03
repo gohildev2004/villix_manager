@@ -43,6 +43,10 @@ export async function collectOperationalHealth(supabase: VillixClient): Promise<
   checks.push(invitationEmailConfigured()
     ? { id: "invitations", label: "Invitation email", status: "healthy", detail: invitationEmailProvider() === "resend" ? "HTTPS invitation delivery is configured." : "SMTP invitation delivery is configured." }
     : { id: "invitations", label: "Invitation email", status: "warning", detail: "Add a Resend API key or complete the SMTP variables." });
+  const applicationKey = process.env.CONTRIBUTOR_APPLICATION_API_KEY;
+  checks.push(applicationKey && applicationKey.length >= 32
+    ? { id: "applications", label: "Contributor applications", status: "healthy", detail: "The landing-page intake API is protected and ready." }
+    : { id: "applications", label: "Contributor applications", status: "error", detail: "The landing-page intake API secret is missing or too short." });
 
   const receiptRows = receipts.data ?? [];
   const receiptsNeedingReview = receiptRows.filter((receipt) => receipt.status === "review" || safeJson<string[]>(receipt.issues, []).length > 0).length;

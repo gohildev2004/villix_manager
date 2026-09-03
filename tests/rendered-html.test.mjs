@@ -335,3 +335,33 @@ test("reviews and sends private contributor invitations from the trusted server"
   assert.match(staging, /INVITATION_SMTP_PASSWORD[\s\S]*sync: false/);
   assert.match(operationalHealth, /Invitation email/);
 });
+
+test("accepts protected landing-page applications and locks matched Shipd usernames", async () => {
+  const [applicationRoute, teamLeadRoute, profileRoute, receiptRoute, migration, health, production, staging, integration] = await Promise.all([
+    readFile(new URL("../app/api/public/contributor-applications/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/public/team-leads/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/payee-portal/profile/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/receipts/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260902170000_contributor_applications.sql", import.meta.url), "utf8"),
+    readFile(new URL("../lib/operational-health.ts", import.meta.url), "utf8"),
+    readFile(new URL("../render.yaml", import.meta.url), "utf8"),
+    readFile(new URL("../render.staging.yaml", import.meta.url), "utf8"),
+    readFile(new URL("../CONTRIBUTOR_APPLICATION_INTEGRATION.md", import.meta.url), "utf8"),
+  ]);
+  assert.match(applicationRoute, /requireApplicationApiKey\(request\)/);
+  assert.match(teamLeadRoute, /requireApplicationApiKey\(request\)/);
+  assert.match(applicationRoute, /eq\("role", "team_lead"\)\.eq\("status", "active"\)/);
+  assert.match(applicationRoute, /sendInvitationEmail/);
+  assert.match(profileRoute, /complete_contributor_application/);
+  assert.match(profileRoute, /shipd_handle_status === "matched"/);
+  assert.match(receiptRoute, /shipd_handle_status: "matched"/);
+  assert.match(migration, /enable row level security/i);
+  assert.match(migration, /revoke all on function public\.complete_contributor_application[\s\S]*anon, authenticated/i);
+  assert.match(migration, /grant execute on function public\.complete_contributor_application[\s\S]*service_role/i);
+  assert.match(migration, /role = 'team_lead' and status = 'active'/);
+  assert.match(health, /Contributor applications/);
+  assert.match(production, /CONTRIBUTOR_APPLICATION_API_KEY[\s\S]*sync: false/);
+  assert.match(staging, /CONTRIBUTOR_APPLICATION_API_KEY[\s\S]*sync: false/);
+  assert.match(integration, /server-to-server/i);
+  assert.match(integration, /intended Shipd\.ai username/i);
+});

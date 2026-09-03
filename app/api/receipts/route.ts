@@ -166,6 +166,21 @@ export async function PATCH(request: Request) {
       approved_at: new Date().toISOString(),
     }).eq("id", body.id);
     if (updateError) throw updateError;
+    const { data: approvedEntries, error: entriesError } = await supabase.from("contribution_entries").select("contributor_id,source_handle").eq("receipt_id", body.id).not("contributor_id", "is", null);
+    if (entriesError) throw entriesError;
+    const contributorIds = [...new Set((approvedEntries ?? []).map((entry) => entry.contributor_id).filter((id): id is string => Boolean(id)))];
+    if (contributorIds.length) {
+      const { data: contributors, error: contributorError } = await supabase.from("people").select("id,handle").in("id", contributorIds);
+      if (contributorError) throw contributorError;
+      const exactMatches = (contributors ?? []).filter((person) => approvedEntries?.some((entry) => entry.contributor_id === person.id && entry.source_handle.toLowerCase() === person.handle.toLowerCase())).map((person) => person.id);
+      if (exactMatches.length) {
+        const matchedAt = new Date().toISOString();
+        const { error: matchPeopleError } = await supabase.from("people").update({ shipd_handle_status: "matched", shipd_handle_matched_at: matchedAt }).in("id", exactMatches);
+        if (matchPeopleError) throw matchPeopleError;
+        const { error: matchApplicationsError } = await supabase.from("contributor_applications").update({ shipd_handle_status: "matched" }).in("person_id", exactMatches);
+        if (matchApplicationsError) throw matchApplicationsError;
+      }
+    }
     await addAudit(supabase, actor, "receipt.approved", "receipt", body.id, `${receipt.filename} approved`, "The verified source rows are eligible for the next payout batch.", "success");
     return Response.json({ ok: true });
   } catch (error) {
