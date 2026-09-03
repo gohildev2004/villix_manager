@@ -1,6 +1,7 @@
 import { addAudit, errorResponse, requireAdmin, safeJson, type VillixClient } from "@/lib/villix-server";
 import { parseReceiptPdf, ReceiptValidationError } from "@/lib/receipt-parser";
 import { reconcileReceipt } from "@/lib/receipt-review";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
@@ -197,28 +198,51 @@ export async function DELETE(request: Request) {
     const receiptId = String(body.id ?? "");
     if (!receiptId) throw new ReceiptValidationError("Receipt ID is required.");
 
+    // Authorization is performed above with the signed-in administrator. Use the
+    // server-only client for the destructive operation so storage and database
+    // cleanup do not depend on a browser session's RLS policy cache.
+    const admin = createAdminClient();
+
     const [{ data: receipt, error: receiptError }, { data: entries, error: entriesError }] = await Promise.all([
-      supabase.from("receipts").select("*").eq("id", receiptId).maybeSingle(),
-      supabase.from("contribution_entries").select("*").eq("receipt_id", receiptId),
+      admin.from("receipts").select("*").eq("id", receiptId).maybeSingle(),
+      admin.from("contribution_entries").select("*").eq("receipt_id", receiptId),
     ]);
     if (receiptError) throw receiptError;
     if (entriesError) throw entriesError;
     if (!receipt) return Response.json({ error: "Receipt not found." }, { status: 404 });
     if (receipt.status === "approved") return Response.json({ error: "Approved receipts are locked and cannot be deleted." }, { status: 409 });
 
-    const { error: deleteEntriesError } = await supabase.from("contribution_entries").delete().eq("receipt_id", receiptId);
+    const { data: deletedEntries, error: deleteEntriesError } = await admin
+      .from("contribution_entries")
+      .delete()
+      .eq("receipt_id", receiptId)
+      .select("id");
     if (deleteEntriesError) throw deleteEntriesError;
-    const { error: deleteReceiptError } = await supabase.from("receipts").delete().eq("id", receiptId);
+    if ((deletedEntries?.length ?? 0) !== (entries?.length ?? 0)) {
+      throw new Error("Receipt entries could not be deleted completely.");
+    }
+
+    const { data: deletedReceipt, error: deleteReceiptError } = await admin
+      .from("receipts")
+      .delete()
+      .eq("id", receiptId)
+      .select("id")
+      .maybeSingle();
     if (deleteReceiptError) {
-      const { error: restoreEntriesError } = await supabase.from("contribution_entries").insert(entries ?? []);
+      const { error: restoreEntriesError } = await admin.from("contribution_entries").insert(entries ?? []);
       if (restoreEntriesError) console.error("Could not restore receipt entries after a failed delete", restoreEntriesError);
       throw deleteReceiptError;
     }
+    if (!deletedReceipt) {
+      const { error: restoreEntriesError } = await admin.from("contribution_entries").insert(entries ?? []);
+      if (restoreEntriesError) console.error("Could not restore receipt entries after a missing receipt delete", restoreEntriesError);
+      throw new Error("Receipt could not be deleted.");
+    }
 
-    const { error: storageError } = await supabase.storage.from("receipt-files").remove([receipt.storage_path]);
+    const { error: storageError } = await admin.storage.from("receipt-files").remove([receipt.storage_path]);
     if (storageError) {
-      const { error: restoreReceiptError } = await supabase.from("receipts").insert(receipt);
-      const { error: restoreEntriesError } = restoreReceiptError ? { error: null } : await supabase.from("contribution_entries").insert(entries ?? []);
+      const { error: restoreReceiptError } = await admin.from("receipts").insert(receipt);
+      const { error: restoreEntriesError } = restoreReceiptError ? { error: null } : await admin.from("contribution_entries").insert(entries ?? []);
       if (restoreReceiptError) console.error("Could not restore receipt after file deletion failed", restoreReceiptError);
       if (restoreEntriesError) console.error("Could not restore receipt entries after file deletion failed", restoreEntriesError);
       throw storageError;

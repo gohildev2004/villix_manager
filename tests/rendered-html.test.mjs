@@ -51,6 +51,10 @@ test("parses, reviews, and validates receipt PDFs on the trusted server", async 
   assert.match(receiptRoute, /contribution_entries"\)\.delete\(\)\.eq\("receipt_id", receiptId\)/);
   assert.match(receiptRoute, /action === "resolve_handle"/);
   assert.match(receiptRoute, /export async function DELETE/);
+  assert.match(receiptRoute, /const admin = createAdminClient\(\)/);
+  assert.match(receiptRoute, /deletedEntries/);
+  assert.match(receiptRoute, /deletedReceipt/);
+  assert.match(receiptRoute, /admin\.storage\.from\("receipt-files"\)\.remove/);
   assert.match(receiptRoute, /Approved receipts are locked and cannot be deleted/);
   assert.match(receiptRoute, /receipt-files"\)\.remove/);
   assert.match(receiptReview, /Unmatched handle/);
