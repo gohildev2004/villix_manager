@@ -1046,11 +1046,7 @@ h1 { font-size: clamp(36px, 3.3vw, 48px); font-weight: 650; letter-spacing: -.04
 .payee-status-card h2 { margin: 8px 0 10px; font-size: 30px; letter-spacing: -.045em; }
 .payee-status-card p { max-width: 650px; margin: 0; color: #707075; font-size: 13px; line-height: 1.55; }
 .payee-primary-action { min-width: 210px; min-height: 52px; padding: 0 18px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; border-radius: 15px; background: #151716; color: #fff; font-size: 13px; font-weight: 680; text-decoration: none; }
-.payee-metrics { margin: 20px 0; display: grid; grid-template-columns: repeat(3,1fr); overflow: hidden; border: 1px solid rgba(29,29,31,.07); border-radius: 22px; background: rgba(29,29,31,.07); gap: 1px; }
-.payee-metrics > div { min-height: 145px; padding: 24px; display: flex; flex-direction: column; background: rgba(255,255,255,.92); }
-.payee-metrics span, .payee-metrics small { color: #85858b; font-size: 11px; }
-.payee-metrics strong { margin: 18px 0 7px; font-size: 27px; letter-spacing: -.045em; }
-.payee-metrics small { margin-top: auto; }
+.payee-details-grid { margin: 20px 0; display: grid; grid-template-columns: minmax(0,1.55fr) minmax(320px,.75fr); align-items: stretch; gap: 20px; }
 .payee-history { overflow: hidden; border: 1px solid rgba(29,29,31,.07); border-radius: 24px; background: rgba(255,255,255,.94); box-shadow: 0 18px 60px rgba(30,40,31,.05); }
 .payee-section-heading { min-height: 96px; padding: 23px 27px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(29,29,31,.07); }
 .payee-section-heading span, .payee-section-heading small { color: #88888d; font-size: 10px; text-transform: uppercase; letter-spacing: .09em; }
@@ -1065,10 +1061,24 @@ h1 { font-size: clamp(36px, 3.3vw, 48px); font-weight: 650; letter-spacing: -.04
 .payee-payment-status { margin-top: 5px !important; color: #8a5b00 !important; text-transform: capitalize; }
 .payee-payment-status.paid { color: #398552 !important; }
 .payee-payment-status.failed { color: #a23b32 !important; }
-.payee-empty { padding: 65px 25px; text-align: center; }
-.payee-empty > span { color: #adb0ad; font-size: 30px; }
+.payee-payment-history { margin-top: 0; }
+.payee-empty { min-height: 220px; padding: 42px 25px; display: grid; place-content: center; justify-items: center; text-align: center; }
+.payee-empty > span { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; color: #63925b; background: #eef6eb; font-size: 16px; font-weight: 700; }
 .payee-empty h3 { margin: 10px 0 5px; }
-.payee-empty p { margin: 0; color: #8a8a8f; font-size: 12px; }
+.payee-empty p { max-width: 390px; margin: 0; color: #8a8a8f; font-size: 12px; line-height: 1.5; }
+.payee-overview-card { overflow: hidden; display: flex; flex-direction: column; border: 1px solid rgba(29,29,31,.07); border-radius: 24px; background: linear-gradient(145deg,rgba(255,255,255,.98),rgba(245,249,243,.96)); box-shadow: 0 18px 60px rgba(30,40,31,.05); }
+.payee-overview-heading { min-height: 96px; padding: 23px 25px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(29,29,31,.07); }
+.payee-overview-heading span, .payee-overview-heading > small, .payee-overview-total span, .payee-overview-total small, .payee-overview-meta span, .payee-overview-meta small { color: #88888d; font-size: 10px; }
+.payee-overview-heading span { text-transform: uppercase; letter-spacing: .09em; }
+.payee-overview-heading > small { padding: 6px 9px; border-radius: 999px; background: rgba(29,29,31,.055); font-weight: 700; letter-spacing: .06em; }
+.payee-overview-heading h2 { margin: 6px 0 0; font-size: 20px; }
+.payee-overview-total { padding: 24px 25px 22px; display: flex; flex-direction: column; }
+.payee-overview-total strong { margin: 8px 0 5px; font-size: clamp(31px,3vw,40px); line-height: 1; letter-spacing: -.055em; }
+.payee-overview-meta { margin-top: auto; display: grid; grid-template-columns: minmax(0,1.45fr) minmax(105px,.55fr); border-top: 1px solid rgba(29,29,31,.07); }
+.payee-overview-meta > div { min-width: 0; padding: 19px 20px; display: flex; flex-direction: column; }
+.payee-overview-meta > div + div { border-left: 1px solid rgba(29,29,31,.07); }
+.payee-overview-meta strong { margin: 7px 0 5px; overflow: hidden; font-size: 16px; letter-spacing: -.025em; text-overflow: ellipsis; white-space: nowrap; }
+.payee-overview-meta small { line-height: 1.4; }
 .shipd-profile-card > .shipd-handle-form { padding: 27px; }
 .shipd-handle-form { width: 100%; display: grid; gap: 20px; }
 .shipd-field-copy { display: grid; gap: 6px; }
@@ -1108,8 +1118,7 @@ h1 { font-size: clamp(36px, 3.3vw, 48px); font-weight: 650; letter-spacing: -.04
   .payee-content { width: min(100% - 28px,1180px); padding-top: 45px; }
   .payee-status-card { min-height: 0; padding: 28px 24px; align-items: stretch; flex-direction: column; border-radius: 24px; }
   .payee-primary-action { width: 100%; }
-  .payee-metrics { grid-template-columns: 1fr; }
-  .payee-metrics > div { min-height: 116px; }
+  .payee-details-grid { grid-template-columns: 1fr; }
   .payee-history-list > div { align-items: flex-start; }
   .payee-footer { flex-direction: column; }
   .shipd-profile-card > .shipd-handle-form { padding: 23px 20px 24px; }
@@ -1117,4 +1126,8 @@ h1 { font-size: clamp(36px, 3.3vw, 48px); font-weight: 650; letter-spacing: -.04
   .shipd-handle-form button { min-height: 52px; }
   .application-summary { grid-template-columns: 1fr; }
   .application-summary > div { min-height: 105px; border-right: 0; border-bottom: 1px solid var(--line); }
+}
+@media (max-width: 460px) {
+  .payee-overview-meta { grid-template-columns: 1fr; }
+  .payee-overview-meta > div + div { border-left: 0; border-top: 1px solid rgba(29,29,31,.07); }
 }
