@@ -9,7 +9,7 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "postbuild": "cp -R public .next/standalone/ && mkdir -p .next/standalone/.next && cp -R .next/static .next/standalone/.next/",
-    "start": "node .next/standalone/server.js",
+    "start": "HOSTNAME=0.0.0.0 node .next/standalone/server.js",
     "test": "npm run test:behavior && npm run build && npm run test:rendered",
     "test:behavior": "node --test tests/behavioral-rules.test.mjs",
     "test:rendered": "node --test tests/rendered-html.test.mjs",
