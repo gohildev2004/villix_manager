@@ -16,7 +16,9 @@ export async function proxy(request: NextRequest) {
       rewriteUrl.pathname = target;
       return updateSession(request, rewriteUrl);
     }
-    if (!request.nextUrl.pathname.startsWith("/payee")) {
+    const isPayeePage = request.nextUrl.pathname.startsWith("/payee");
+    const isPayeeApi = request.nextUrl.pathname.startsWith("/api/payee-portal/");
+    if (!isPayeePage && !isPayeeApi) {
       return new NextResponse("Not found", { status: 404, headers: { "cache-control": "no-store" } });
     }
   }

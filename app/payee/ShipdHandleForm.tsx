@@ -12,7 +12,10 @@ export default function ShipdHandleForm({ initialHandle = "", locked = false, fi
     event.preventDefault(); setSaving(true); setError("");
     try {
       const response = await fetch("/api/payee-portal/profile", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ handle }) });
-      const result = await response.json() as { error?: string };
+      const contentType = response.headers.get("content-type") ?? "";
+      const result = contentType.includes("application/json")
+        ? await response.json() as { error?: string }
+        : { error: response.ok ? undefined : "The contributor portal could not save your username. Please try again." };
       if (!response.ok) throw new Error(result.error || "Could not save username.");
       router.refresh();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not save username."); }

@@ -341,16 +341,18 @@ test("reviews and sends private contributor invitations from the trusted server"
 });
 
 test("accepts protected landing-page applications and locks matched Shipd usernames", async () => {
-  const [applicationRoute, teamLeadRoute, profileRoute, receiptRoute, migration, health, production, staging, integration] = await Promise.all([
+  const [applicationRoute, teamLeadRoute, profileRoute, profileForm, receiptRoute, migration, health, production, staging, integration, proxy] = await Promise.all([
     readFile(new URL("../app/api/public/contributor-applications/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/public/team-leads/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/payee-portal/profile/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/payee/ShipdHandleForm.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/receipts/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../supabase/migrations/20260902170000_contributor_applications.sql", import.meta.url), "utf8"),
     readFile(new URL("../lib/operational-health.ts", import.meta.url), "utf8"),
     readFile(new URL("../render.yaml", import.meta.url), "utf8"),
     readFile(new URL("../render.staging.yaml", import.meta.url), "utf8"),
     readFile(new URL("../CONTRIBUTOR_APPLICATION_INTEGRATION.md", import.meta.url), "utf8"),
+    readFile(new URL("../proxy.ts", import.meta.url), "utf8"),
   ]);
   assert.match(applicationRoute, /requireApplicationApiKey\(request\)/);
   assert.match(teamLeadRoute, /requireApplicationApiKey\(request\)/);
@@ -358,6 +360,9 @@ test("accepts protected landing-page applications and locks matched Shipd userna
   assert.match(applicationRoute, /sendInvitationEmail/);
   assert.match(profileRoute, /complete_contributor_application/);
   assert.match(profileRoute, /shipd_handle_status === "matched"/);
+  assert.match(profileForm, /content-type/);
+  assert.match(profileForm, /The contributor portal could not save your username/);
+  assert.match(proxy, /startsWith\("\/api\/payee-portal\/"\)/);
   assert.match(receiptRoute, /shipd_handle_status: "matched"/);
   assert.match(migration, /enable row level security/i);
   assert.match(migration, /revoke all on function public\.complete_contributor_application[\s\S]*anon, authenticated/i);
